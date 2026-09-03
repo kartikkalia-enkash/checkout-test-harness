@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EnKash Checkout SDK — Test Harness</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161923;
+    --panel-border: #262b3a;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --accent: #6d5ef7;
+    --accent-hover: #8071ff;
+    --ok: #33c481;
+    --err: #ef5b5b;
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    padding: 32px 16px;
+  }
+
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+
+  header {
+    margin-bottom: 24px;
+  }
+
+  header h1 {
+    font-size: 20px;
+    margin: 0 0 4px;
+    font-weight: 600;
+  }
+
+  header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .warn-banner {
+    background: #2a1f10;
+    border: 1px solid #7a5a1a;
+    color: #f0c674;
+    font-size: 12.5px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    line-height: 1.5;
+    display: none;
+  }
+  .warn-banner.show { display: block; }
+  .warn-banner code { background: #10131c; padding: 1px 5px; border-radius: 4px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  @media (min-width: 760px) {
+    .grid { grid-template-columns: 360px 1fr; align-items: start; }
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .card h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 0 0 16px;
+    font-weight: 600;
+  }
+
+  label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  input[type="text"] {
+    width: 100%;
+    background: #0d0f16;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 16px;
+    font-family: var(--mono);
+  }
+
+  input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .checkbox-row input { accent-color: var(--accent); }
+
+  textarea#curlInput {
+    width: 100%;
+    background: #0d0f16;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-bottom: 12px;
+    font-family: var(--mono);
+    min-height: 110px;
+    resize: vertical;
+  }
+
+  textarea#curlInput:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .fetch-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+
+  button#parseBtn {
+    flex: 1;
+    background: #262b3a;
+    color: var(--text);
+    border: 1px solid var(--panel-border);
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+
+  button#parseBtn:hover { border-color: var(--accent); }
+
+  .hint-text {
+    color: var(--muted);
+    font-size: 11.5px;
+    margin: 8px 0 0;
+    line-height: 1.5;
+  }
+
+  button#payBtn {
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: background 0.15s ease;
+  }
+
+  button#payBtn:hover { background: var(--accent-hover); }
+  button#payBtn:disabled { background: #3a3d4a; cursor: not-allowed; }
+
+  button#closeBtn {
+    width: 100%;
+    background: #262b3a;
+    color: var(--text);
+    border: 1px solid var(--panel-border);
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+  }
+  button#closeBtn:hover { border-color: var(--err); color: var(--err); }
+  button#closeBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #1d2130;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  .status-pill .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--muted);
+  }
+  .status-pill.open .dot { background: var(--ok); }
+  .status-pill.closed .dot { background: var(--muted); }
+  .status-pill.error .dot { background: var(--err); }
+
+  .log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 520px;
+    overflow-y: auto;
+  }
+
+  .log-entry {
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #0d0f16;
+  }
+
+  .log-entry .log-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-family: var(--mono);
+  }
+
+  .log-entry.sent .log-head { color: #9fb4ff; }
+  .log-entry.received .log-head { color: #7ee2b8; }
+  .log-entry.raw .log-head { color: #d9a5f0; }
+  .log-entry.error .log-head { color: var(--err); }
+  .log-entry.info .log-head { color: var(--muted); }
+
+  .log-entry .log-tag {
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-right: 8px;
+  }
+
+  .log-entry pre {
+    margin: 0;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    border-top: 1px solid var(--panel-border);
+    background: #10131c;
+  }
+
+  .empty-hint {
+    color: var(--muted);
+    font-size: 13px;
+    padding: 20px 0;
+    text-align: center;
+  }
+
+  .clear-btn, .copy-btn {
+    background: none;
+    border: 1px solid var(--panel-border);
+    color: var(--muted);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .clear-btn:hover, .copy-btn:hover { color: var(--text); border-color: var(--muted); }
+  .copy-btn.copied { color: var(--ok); border-color: var(--ok); }
+
+  .log-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    gap: 8px;
+  }
+
+  .log-header-actions {
+    display: flex;
+    gap: 8px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>EnKash Checkout SDK — Test Harness</h1>
+      <p>Enter an order ID, open checkout, and inspect everything sent to / received from the SDK.</p>
+    </header>
+
+    <div id="sdkWarnBanner" class="warn-banner">
+      ⚠️ <code>window.EnkashCheckout</code> was not found. The SDK script tag below didn't load —
+      check that its <code>src</code> points to a URL actually reachable from wherever this page is hosted
+      (an absolute local filesystem path only works on the machine that has that exact file).
+    </div>
+
+    <div class="card" style="margin-bottom: 20px;">
+      <h2>Get Order ID (from Quick Collect)</h2>
+      <label for="curlInput">Paste the raw JSON response (run the curl/Postman call yourself first)</label>
+      <textarea id="curlInput" placeholder="{&quot;payload&quot;:&quot;https://checkout-uat-v3.enkash.in/v1/pay/ORD...&quot;,&quot;response_code&quot;:0,&quot;response_message&quot;:&quot;Success&quot;}"></textarea>
+      <div class="fetch-row">
+        <button id="parseBtn">Parse &amp; Fill Order ID</button>
+      </div>
+      <p class="hint-text">
+        Pulls the order ID off the end of the <code>payload</code> URL and drops it into the field below.
+      </p>
+    </div>
+
+    <div class="grid">
+      <!-- Left: form -->
+      <div class="card">
+        <h2>Checkout Request</h2>
+
+        <div id="statusPill" class="status-pill closed">
+          <span class="dot"></span>
+          <span id="statusText">Idle</span>
+        </div>
+
+        <label for="orderId">Order ID (auto-filled above, or edit manually)</label>
+        <input type="text" id="orderId" placeholder="order_xxx" value="order_test_12345" />
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="escapeOpt" checked />
+          <label for="escapeOpt" style="margin:0;">Allow Escape key to dismiss</label>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="backdropOpt" />
+          <label for="backdropOpt" style="margin:0;">Allow backdrop click to dismiss</label>
+        </div>
+
+        <button id="payBtn">Pay Now</button>
+        <button id="closeBtn" disabled>Force Close (checkout.close())</button>
+      </div>
+
+      <!-- Right: logs -->
+      <div class="card">
+        <div class="log-header-row">
+          <h2 style="margin:0;">Activity Log</h2>
+          <div class="log-header-actions">
+            <button class="copy-btn" id="copyBtn">Copy all</button>
+            <button class="clear-btn" id="clearBtn">Clear</button>
+          </div>
+        </div>
+        <div class="log-list" id="logList">
+          <div class="empty-hint" id="emptyHint">Nothing yet. Click "Pay Now" to start.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== EnKash Checkout SDK ===================== -->
+  <!-- IMPORTANT: this must be a URL reachable from wherever THIS page is hosted/served — -->
+  <!-- not a local absolute filesystem path. Swap for the real hosted CDN URL. -->
+  <script src="./checkout-sdk.js"></script>
+  <!-- =================== end EnKash Checkout SDK =================== -->
+
+  <!-- ===================== Test harness logic ===================== -->
+  <script>
+  (function () {
+    var logList = document.getElementById('logList');
+    var emptyHint = document.getElementById('emptyHint');
+    var statusPill = document.getElementById('statusPill');
+    var statusText = document.getElementById('statusText');
+    var payBtn = document.getElementById('payBtn');
+    var closeBtn = document.getElementById('closeBtn');
+    var clearBtn = document.getElementById('clearBtn');
+    var copyBtn = document.getElementById('copyBtn');
+    var sdkWarnBanner = document.getElementById('sdkWarnBanner');
+
+    var currentCheckout = null;
+    var logEntries = []; // plain-text mirror, for copy-to-clipboard
+
+    // ---- SDK presence check ----
+    if (typeof window.EnkashCheckout === 'undefined') {
+      sdkWarnBanner.classList.add('show');
+    }
+
+    function setStatus(mode, text) {
+      statusPill.className = 'status-pill ' + mode;
+      statusText.textContent = text;
+    }
+
+    function safeStringify(obj) {
+      try {
+        return JSON.stringify(obj, null, 2);
+      } catch (e) {
+        return String(obj);
+      }
+    }
+
+    function addLog(kind, label, payload) {
+      if (emptyHint) {
+        emptyHint.remove();
+      }
+      var entry = document.createElement('div');
+      entry.className = 'log-entry ' + kind;
+
+      var head = document.createElement('div');
+      head.className = 'log-head';
+
+      var left = document.createElement('span');
+      var tag = document.createElement('span');
+      tag.className = 'log-tag';
+      tag.textContent = kind;
+      left.appendChild(tag);
+      left.appendChild(document.createTextNode(label));
+
+      var time = document.createElement('span');
+      var now = new Date();
+      time.textContent = now.toLocaleTimeString();
+
+      head.appendChild(left);
+      head.appendChild(time);
+      entry.appendChild(head);
+
+      var payloadText = '';
+      if (payload !== undefined) {
+        payloadText = typeof payload === 'string' ? payload : safeStringify(payload);
+        var pre = document.createElement('pre');
+        pre.textContent = payloadText;
+        entry.appendChild(pre);
+      }
+
+      logList.insertBefore(entry, logList.firstChild);
+
+      // plain-text mirror for clipboard export (newest last, matches reading order)
+      logEntries.push(
+        '[' + now.toLocaleTimeString() + '] ' + kind.toUpperCase() + ' — ' + label +
+        (payloadText ? '\n' + payloadText : '')
+      );
+    }
+
+    // ---- Raw postMessage listener — sees everything, even if the SDK mishandles it ----
+    window.addEventListener('message', function (event) {
+      addLog('raw', 'window message event — origin: ' + event.origin, event.data);
+    });
+
+    function handlePayClick() {
+      var orderId = document.getElementById('orderId').value.trim();
+
+      if (!orderId) {
+        addLog('error', 'Validation error', 'Order ID is required.');
+        return;
+      }
+
+      if (typeof window.EnkashCheckout === 'undefined') {
+        addLog('error', 'EnkashCheckout is not defined',
+          'The SDK script did not load. Check the <script src> path at the bottom of this HTML file.');
+        return;
+      }
+
+      var options = {
+        order_id: orderId,
+        handler: function (response) {
+          // This is exactly what the SDK hands back on enkash:result
+          addLog('received', 'SDK response (handler called)', response);
+          setStatus('closed', 'Completed');
+          payBtn.disabled = false;
+          closeBtn.disabled = true;
+          currentCheckout = null;
+        },
+        modal: {
+          escape: document.getElementById('escapeOpt').checked,
+          backdropclose: document.getElementById('backdropOpt').checked,
+          ondismiss: function () {
+            addLog('info', 'Checkout dismissed by user', null);
+            setStatus('closed', 'Dismissed');
+            payBtn.disabled = false;
+            closeBtn.disabled = true;
+            currentCheckout = null;
+          }
+        }
+      };
+
+      // Log exactly what we're about to send to the SDK
+      addLog('sent', 'Opening checkout with input', {
+        order_id: options.order_id,
+        modal: options.modal
+      });
+
+      try {
+        currentCheckout = new EnkashCheckout(options);
+        currentCheckout.open();
+        setStatus('open', 'Checkout open');
+        payBtn.disabled = true;
+        closeBtn.disabled = false;
+      } catch (err) {
+        addLog('error', 'SDK threw an error', err && err.message ? err.message : String(err));
+        setStatus('error', 'Error');
+      }
+    }
+
+    function handleCloseClick() {
+      if (!currentCheckout) return;
+      addLog('info', 'Force-closing via checkout.close()', null);
+      currentCheckout.close();
+      setStatus('closed', 'Force closed');
+      payBtn.disabled = false;
+      closeBtn.disabled = true;
+      currentCheckout = null;
+    }
+
+    payBtn.addEventListener('click', handlePayClick);
+    closeBtn.addEventListener('click', handleCloseClick);
+
+    // ---- Order-ID extraction from pasted JSON response ----
+
+    function extractOrderIdFromPayloadUrl(payloadUrl) {
+      if (!payloadUrl) return null;
+      var parts = payloadUrl.split('/').filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : null;
+    }
+
+    function handleParseClick() {
+      var raw = document.getElementById('curlInput').value.trim();
+      if (!raw) {
+        addLog('error', 'Nothing to parse', 'Paste the JSON response first.');
+        return;
+      }
+
+      var json;
+      try {
+        json = JSON.parse(raw);
+      } catch (e) {
+        addLog('error', 'Failed to parse pasted JSON', e.message);
+        return;
+      }
+
+      addLog('received', 'Pasted JSON response', json);
+
+      var orderId = extractOrderIdFromPayloadUrl(json.payload);
+      if (orderId) {
+        document.getElementById('orderId').value = orderId;
+        addLog('info', 'Order ID extracted and filled', orderId);
+      } else {
+        addLog('error', 'Could not find a `payload` order URL in that response', json);
+      }
+    }
+
+    document.getElementById('parseBtn').addEventListener('click', handleParseClick);
+
+    clearBtn.addEventListener('click', function () {
+      logEntries = [];
+      logList.innerHTML = '';
+      var hint = document.createElement('div');
+      hint.className = 'empty-hint';
+      hint.id = 'emptyHint';
+      hint.textContent = 'Nothing yet. Click "Pay Now" to start.';
+      logList.appendChild(hint);
+    });
+
+    // ---- Copy all logs to clipboard ----
+    copyBtn.addEventListener('click', function () {
+      var text = logEntries.length
+        ? logEntries.join('\n\n')
+        : 'No log entries yet.';
+
+      function showCopied() {
+        var original = copyBtn.textContent;
+        copyBtn.textContent = 'Copied!';
+        copyBtn.classList.add('copied');
+        setTimeout(function () {
+          copyBtn.textContent = original;
+          copyBtn.classList.remove('copied');
+        }, 1500);
+      }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(showCopied, function () {
+          fallbackCopy(text, showCopied);
+        });
+      } else {
+        fallbackCopy(text, showCopied);
+      }
+    });
+
+    function fallbackCopy(text, onDone) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) { /* no-op */ }
+      document.body.removeChild(ta);
+      onDone();
+    }
+  })();
+  </script>
+</body>
+</html>

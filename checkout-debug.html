@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>EnKash Checkout — Debug Harness</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; display: flex; height: 100vh; }
+    #controls {
+      width: 380px; padding: 16px; background: #111827; color: #e5e7eb;
+      overflow-y: auto; box-sizing: border-box; flex-shrink: 0;
+    }
+    #controls h3 { margin-top: 0; }
+    #controls input, #controls button {
+      width: 100%; padding: 8px; margin-bottom: 8px; box-sizing: border-box;
+      font-size: 13px;
+    }
+    #controls button { cursor: pointer; background: #2563eb; color: white; border: none; border-radius: 4px; }
+    #controls button.secondary { background: #374151; }
+    #stage {
+      flex: 1; position: relative; background: #f3f4f6;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #overlay {
+      display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.5);
+      align-items: center; justify-content: center;
+    }
+    #frame {
+      border: 0; width: 1115px; height: 646px; max-width: 100%; max-height: 100%;
+      background: transparent; border-radius: 12px;
+    }
+    #log {
+      background: #000; color: #4ade80; font-family: monospace; font-size: 11px;
+      padding: 8px; height: 220px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+      border-radius: 4px;
+    }
+    .log-line { margin-bottom: 6px; border-bottom: 1px solid #1f2937; padding-bottom: 4px; }
+    .log-line.in { color: #4ade80; }
+    .log-line.out { color: #60a5fa; }
+    .log-line.err { color: #f87171; }
+  </style>
+</head>
+<body>
+
+  <div id="controls">
+    <h3>EnKash Debug Harness</h3>
+
+    <label>Checkout origin (base)</label>
+    <input id="baseUrl" value="http://localhost:4200" />
+
+    <label>Path to load (jump anywhere)</label>
+    <input id="path" value="/v1/status?orderId=ORD1787584522462ck78p&amount=10.00&finalAmount=10.00&transactionAmount=10.00&status=SUCCESS&uniqueTransactionId=EK58110VWCF&txnMessage=Completed.&txnDate=2026-08-24%2020:46:02&currency=INR&return_url=https:%2F%2Fkashflo-uat.enkash.in%2Fapi%2Fv0%2Fpayment%2Ffinalize&orderStatus=PAID&transactionId=EK1787584557962GwZaa&paymentMode=NET_BANKING" />
+
+    <label>
+      <input type="checkbox" id="embedFlag" checked style="width:auto;display:inline-block;margin-right:6px;" />
+      append embedded=true&parentOrigin=...
+    </label>
+
+    <button id="loadBtn">Load in iframe</button>
+    <button id="closeBtn" class="secondary">Close / Teardown</button>
+
+    <h3>Message Log</h3>
+    <div id="log"></div>
+  </div>
+
+  <div id="stage">
+    <div id="overlay">
+      <iframe id="frame" title="EnKash Checkout Debug"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation">
+      </iframe>
+    </div>
+  </div>
+
+  <script>
+    var overlay = document.getElementById('overlay');
+    var frame = document.getElementById('frame');
+    var logEl = document.getElementById('log');
+    var currentOrigin = null;
+
+    function log(direction, msg) {
+      var line = document.createElement('div');
+      line.className = 'log-line ' + direction;
+      var ts = new Date().toLocaleTimeString();
+      line.textContent = '[' + ts + '] ' + msg;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    document.getElementById('loadBtn').addEventListener('click', function () {
+      var base = document.getElementById('baseUrl').value.trim().replace(/\/$/, '');
+      var path = document.getElementById('path').value.trim();
+      var appendEmbed = document.getElementById('embedFlag').checked;
+
+      currentOrigin = new URL(base).origin;
+
+      var sep = path.indexOf('?') === -1 ? '?' : '&';
+      var url = base + path;
+      if (appendEmbed) {
+        url += sep + 'embedded=true&parentOrigin=' + encodeURIComponent(window.location.origin);
+      }
+
+      log('out', 'Loading: ' + url);
+      frame.src = url;
+      overlay.style.display = 'flex';
+    });
+
+    document.getElementById('closeBtn').addEventListener('click', function () {
+      frame.src = 'about:blank';
+      overlay.style.display = 'none';
+      log('out', 'Torn down manually');
+    });
+
+    window.addEventListener('message', function (event) {
+      // Log everything during debugging — don't filter by origin yet, so you can see
+      // stray messages too. Tighten this once you're past debugging.
+      var data = event.data || {};
+      log('in', 'FROM ' + event.origin + ' — type: ' + data.type + ' — payload: ' + JSON.stringify(data.payload) + ' — messageId: ' + data.messageId);
+
+      // Auto-ack, same as the real SDK would, so the app's ack-based flows don't stall.
+      if (data.type === 'enkash:result' || data.type === 'enkash:dismiss') {
+        if (frame.contentWindow && currentOrigin) {
+          frame.contentWindow.postMessage(
+            { type: 'enkash:ack', payload: { messageId: data.messageId } },
+            currentOrigin
+          );
+          log('out', 'Sent enkash:ack for messageId ' + data.messageId);
+        }
+      }
+
+      if (data.type === 'enkash:resize' && data.payload && typeof data.payload.height === 'number') {
+        frame.style.height = data.payload.height + 'px';
+      }
+    });
+  </script>
+
+</body>
+</html>

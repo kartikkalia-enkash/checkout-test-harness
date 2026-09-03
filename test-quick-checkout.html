@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Dummy Merchant Store — EnKash Quick Checkout Test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 640px;
+    margin: 60px auto;
+    padding: 0 20px;
+    color: #1a1a1a;
+  }
+  h1 { font-size: 22px; }
+  .product-card {
+    border: 1px solid #e2e2e2;
+    border-radius: 12px;
+    padding: 24px;
+    margin-top: 24px;
+  }
+  .price {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 8px 0 20px;
+  }
+  .note {
+    background: #fff8e6;
+    border: 1px solid #f0dca0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    margin-top: 24px;
+    line-height: 1.5;
+  }
+  code {
+    background: #f4f4f4;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  #enkash-quick-checkout {
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+  <h1>Acme Sneaker Co.</h1>
+  <p>This page has <strong>zero</strong> integration JavaScript. It only contains
+     one container element and one script tag — everything else (button UI,
+     opening checkout, and redirecting back here on completion) is handled
+     entirely by <code>checkout-quick.js</code>.</p>
+
+  <div class="product-card">
+    <strong>Classic Runner — Size 9</strong>
+    <div class="price">₹1.00</div>
+
+    <!--
+      This is the merchant's ENTIRE integration surface. Replace
+      data-order_id with a real order_id created via your backend
+      Orders API before loading this page.
+    -->
+    <div id="enkash-quick-checkout" data-order_id="ORD1787860410764QWU8k"></div>
+  </div>
+
+  <div class="note">
+    <strong>Local testing notes</strong><br />
+    1. Create a real order against UAT and paste its <code>order_id</code> above.<br />
+    2. This file loads <code>checkout-quick.js</code> from <code>./checkout-quick.js</code> below —
+       swap the <code>src</code> for the hosted UAT/dev URL if you're not serving both files locally.<br />
+    3. On completion, this page will navigate away to whatever <code>returnUrl</code>
+       is present in the result payload — for local testing, point the order's
+       return URL at something like <code>http://localhost:PORT/test-quick-checkout.html</code>
+       or a request-bin so you can inspect the final query string.
+  </div>
+
+  <!-- Local dev: served from the same folder as checkout-quick.js -->
+  <script src="./checkout-quick.js"></script>
+
+</body>
+</html>
