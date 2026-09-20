@@ -64,6 +64,55 @@
   .warn-banner.show { display: block; }
   .warn-banner code { background: #10131c; padding: 1px 5px; border-radius: 4px; }
 
+  .env-card { margin-bottom: 20px; }
+
+  .env-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .env-row > div { flex: 1 1 200px; min-width: 180px; }
+
+  select#envSelect {
+    width: 100%;
+    background: #0d0f16;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: var(--mono);
+    appearance: none;
+    cursor: pointer;
+  }
+
+  select#envSelect:focus { outline: none; border-color: var(--accent); }
+
+  .env-resolved {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text);
+    background: #0d0f16;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    word-break: break-all;
+  }
+
+  .env-resolved .env-label {
+    display: block;
+    color: var(--muted);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+
+  #customBaseWrap { display: none; }
+  #customBaseWrap.show { display: block; }
+  #customBaseWrap input { margin-bottom: 0; }
+
   .grid {
     display: grid;
     grid-template-columns: 1fr;
@@ -320,6 +369,42 @@
       (an absolute local filesystem path only works on the machine that has that exact file).
     </div>
 
+    <div id="mixedContentBanner" class="warn-banner">
+      ⚠️ This page is served over <code>https</code> but the selected checkout base is plain
+      <code>http</code>. Chrome allows <code>http://localhost</code> here, but Safari and Firefox
+      block it as mixed content and the iframe will stay blank. To test <strong>local</strong>,
+      open this harness from <code>http://localhost</code> instead of the hosted URL.
+    </div>
+
+    <div class="card env-card">
+      <h2>Environment</h2>
+      <div class="env-row">
+        <div>
+          <label for="envSelect">Checkout environment</label>
+          <select id="envSelect">
+            <option value="local">local — http://localhost:4200</option>
+            <option value="uat">uat — https://checkout-uat-v3.enkash.in</option>
+            <option value="prod">prod — https://checkoutv3.enkash.com</option>
+            <option value="custom">custom base URL…</option>
+          </select>
+        </div>
+        <div id="customBaseWrap">
+          <label for="customBase">Custom base URL</label>
+          <input type="text" id="customBase" placeholder="https://my-branch-preview.example.com" />
+        </div>
+        <div>
+          <div class="env-resolved">
+            <span class="env-label">Iframe will load from</span>
+            <span id="resolvedBase">—</span>
+          </div>
+        </div>
+      </div>
+      <p class="hint-text">
+        Remembered in this browser and reflected in the URL (<code>?env=uat</code>), so a link
+        pins the environment. One SDK build — nothing to rebuild per environment.
+      </p>
+    </div>
+
     <div class="card" style="margin-bottom: 20px;">
       <h2>Get Order ID (from Quick Collect)</h2>
       <label for="curlInput">Paste the raw JSON response (run the curl/Postman call yourself first)</label>
@@ -393,6 +478,11 @@
     var clearBtn = document.getElementById('clearBtn');
     var copyBtn = document.getElementById('copyBtn');
     var sdkWarnBanner = document.getElementById('sdkWarnBanner');
+    var mixedContentBanner = document.getElementById('mixedContentBanner');
+    var envSelect = document.getElementById('envSelect');
+    var customBaseWrap = document.getElementById('customBaseWrap');
+    var customBaseInput = document.getElementById('customBase');
+    var resolvedBaseEl = document.getElementById('resolvedBase');
 
     var currentCheckout = null;
     var logEntries = []; // plain-text mirror, for copy-to-clipboard
@@ -401,6 +491,129 @@
     if (typeof window.EnkashCheckout === 'undefined') {
       sdkWarnBanner.classList.add('show');
     }
+
+    // ================= Environment switching =================
+    // Single SDK build. The base URL is passed in per open() call, so
+    // switching environments here needs no reload and no second copy of
+    // checkout-sdk.js.
+
+    // Prefer the SDK's own table so these URLs live in exactly one place;
+    // fall back to a local copy only so the selector still works when the
+    // SDK script failed to load.
+    var ENVIRONMENTS = (window.EnkashCheckout && window.EnkashCheckout.ENVIRONMENTS) || {
+      local: 'http://localhost:4200',
+      uat: 'https://checkout-uat-v3.enkash.in',
+      prod: 'https://checkoutv3.enkash.com'
+    };
+
+    var ENV_STORAGE_KEY = 'enkash.harness.env';
+    var CUSTOM_BASE_STORAGE_KEY = 'enkash.harness.customBase';
+    var FALLBACK_ENV = 'uat';
+
+    function stripTrailingSlash(url) {
+      return String(url).trim().replace(/\/+$/, '');
+    }
+
+    function safeStorageGet(key) {
+      try { return window.localStorage.getItem(key); } catch (e) { return null; }
+    }
+
+    function safeStorageSet(key, value) {
+      try { window.localStorage.setItem(key, value); } catch (e) { /* private mode */ }
+    }
+
+    // Query string wins over localStorage, so a shared link pins the env.
+    function readInitialSelection() {
+      var params = new URLSearchParams(window.location.search);
+      var qsBase = params.get('base');
+      if (qsBase) return { env: 'custom', customBase: qsBase };
+
+      var qsEnv = (params.get('env') || '').toLowerCase();
+      if (qsEnv && ENVIRONMENTS[qsEnv]) return { env: qsEnv, customBase: '' };
+
+      var storedEnv = safeStorageGet(ENV_STORAGE_KEY);
+      var storedCustom = safeStorageGet(CUSTOM_BASE_STORAGE_KEY) || '';
+      if (storedEnv === 'custom' && storedCustom) {
+        return { env: 'custom', customBase: storedCustom };
+      }
+      if (storedEnv && ENVIRONMENTS[storedEnv]) {
+        return { env: storedEnv, customBase: storedCustom };
+      }
+      return { env: FALLBACK_ENV, customBase: storedCustom };
+    }
+
+    // Returns the base URL to hand the SDK, or null when the custom input
+    // isn't a usable URL yet.
+    function getResolvedBase() {
+      if (envSelect.value === 'custom') {
+        var raw = stripTrailingSlash(customBaseInput.value);
+        if (!raw) return null;
+        var parsed;
+        try {
+          parsed = new URL(raw);
+        } catch (e) {
+          return null;
+        }
+        // 'localhost:4200' parses as a URL but has origin "null" — reject it
+        // so the SDK never gets a base it can't match postMessages against.
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+        return raw;
+      }
+      return stripTrailingSlash(ENVIRONMENTS[envSelect.value] || '');
+    }
+
+    function syncUrlBar() {
+      if (!window.history || !window.history.replaceState) return;
+      var params = new URLSearchParams(window.location.search);
+      params.delete('env');
+      params.delete('base');
+      if (envSelect.value === 'custom') {
+        var base = getResolvedBase();
+        if (base) params.set('base', base);
+      } else {
+        params.set('env', envSelect.value);
+      }
+      var qs = params.toString();
+      window.history.replaceState(
+        null, '', window.location.pathname + (qs ? '?' + qs : '') + window.location.hash
+      );
+    }
+
+    function updateEnvUI() {
+      var isCustom = envSelect.value === 'custom';
+      customBaseWrap.classList.toggle('show', isCustom);
+
+      var base = getResolvedBase();
+      resolvedBaseEl.textContent = base
+        ? base + '/v1/pay/<order_id>'
+        : (isCustom ? 'Enter a valid absolute URL (https://…)' : '—');
+
+      // http base inside an https page: fine in Chrome for localhost,
+      // blocked outright in Safari/Firefox.
+      var mixed = window.location.protocol === 'https:' && !!base && base.indexOf('http://') === 0;
+      mixedContentBanner.classList.toggle('show', mixed);
+
+      safeStorageSet(ENV_STORAGE_KEY, envSelect.value);
+      if (isCustom) safeStorageSet(CUSTOM_BASE_STORAGE_KEY, customBaseInput.value.trim());
+
+      syncUrlBar();
+    }
+
+    (function initEnv() {
+      var initial = readInitialSelection();
+      envSelect.value = initial.env;
+      customBaseInput.value = initial.customBase || '';
+      updateEnvUI();
+    })();
+
+    envSelect.addEventListener('change', function () {
+      updateEnvUI();
+      addLog('info', 'Environment switched', {
+        env: envSelect.value,
+        base_url: getResolvedBase()
+      });
+    });
+    customBaseInput.addEventListener('input', updateEnvUI);
 
     function setStatus(mode, text) {
       statusPill.className = 'status-pill ' + mode;
@@ -476,7 +689,17 @@
         return;
       }
 
+      var baseUrl = getResolvedBase();
+      if (!baseUrl) {
+        addLog('error', 'Validation error',
+          'No valid checkout base URL. Pick an environment, or enter a full absolute URL for "custom".');
+        return;
+      }
+
       var options = {
+        // One SDK build for every environment — the base URL is an input,
+        // not a compile-time constant.
+        base_url: baseUrl,
         order_id: orderId,
         handler: function (response) {
           // This is exactly what the SDK hands back on enkash:result
@@ -501,6 +724,10 @@
 
       // Log exactly what we're about to send to the SDK
       addLog('sent', 'Opening checkout with input', {
+        env: envSelect.value,
+        base_url: options.base_url,
+        iframe_src: options.base_url + '/v1/pay/' + encodeURIComponent(options.order_id) +
+          '?embedded=true&parentOrigin=' + encodeURIComponent(window.location.origin),
         order_id: options.order_id,
         modal: options.modal
       });
@@ -538,6 +765,30 @@
       return parts.length ? parts[parts.length - 1] : null;
     }
 
+    // An order created on one environment doesn't exist on another, and the
+    // failure looks like a broken SDK rather than a wrong-env mistake — so
+    // call it out at paste time.
+    function warnIfPayloadEnvMismatch(payloadUrl) {
+      var base = getResolvedBase();
+      if (!base) return;
+
+      var payloadOrigin;
+      try {
+        payloadOrigin = new URL(payloadUrl).origin;
+      } catch (e) {
+        return; // not an absolute URL, nothing to compare
+      }
+
+      var selectedOrigin = new URL(base).origin;
+      if (payloadOrigin !== selectedOrigin) {
+        addLog('error', 'Environment mismatch', {
+          order_created_on: payloadOrigin,
+          selected_environment: selectedOrigin,
+          note: 'This order likely does not exist on the selected environment. Switch the environment selector to match.'
+        });
+      }
+    }
+
     function handleParseClick() {
       var raw = document.getElementById('curlInput').value.trim();
       if (!raw) {
@@ -559,6 +810,7 @@
       if (orderId) {
         document.getElementById('orderId').value = orderId;
         addLog('info', 'Order ID extracted and filled', orderId);
+        warnIfPayloadEnvMismatch(json.payload);
       } else {
         addLog('error', 'Could not find a `payload` order URL in that response', json);
       }

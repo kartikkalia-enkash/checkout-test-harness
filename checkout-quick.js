@@ -43,6 +43,11 @@
 
   var BUTTON_LABEL = 'Pay with EnKash';
 
+  // Captured at evaluation time. document.currentScript is only non-null
+  // while this file is executing — by the time DOMContentLoaded fires it is
+  // null, so reading it lazily inside a callback would lose the reference.
+  var THIS_SCRIPT = document.currentScript;
+
   // Same generic pre-transaction failure shape checkout-sdk.js passes to
   // `handler`. Duplicated here on purpose: the path that needs it most is
   // the one where checkout-sdk.js never loaded, so nothing from it exists.
@@ -53,18 +58,80 @@
   // ---- bootstrapping: make sure EnkashCheckout is available ----
 
   function getSdkUrl() {
-    var thisScript = document.currentScript;
     // data-sdk-src lets a specific deployment override the default sibling
     // path, e.g. if checkout-sdk.js is hosted elsewhere.
-    if (thisScript && thisScript.getAttribute('data-sdk-src')) {
-      return thisScript.getAttribute('data-sdk-src');
+    if (THIS_SCRIPT && THIS_SCRIPT.getAttribute('data-sdk-src')) {
+      return THIS_SCRIPT.getAttribute('data-sdk-src');
     }
-    if (thisScript && thisScript.src) {
-      return thisScript.src.replace(/checkout-quick\.js(\?.*)?$/, 'checkout-sdk.js');
+    if (THIS_SCRIPT && THIS_SCRIPT.src) {
+      return THIS_SCRIPT.src.replace(/checkout-quick\.js(\?.*)?$/, 'checkout-sdk.js');
     }
     // Fallback: shouldn't normally happen (document.currentScript is null
     // only if this file was injected asynchronously by other code).
     return 'checkout-sdk.js';
+  }
+
+  // ---- which checkout environment to open ----
+
+  /**
+   * Returns the env-related options to hand EnkashCheckout — `{}` when we
+   * have nothing to say, in which case the SDK applies its own default.
+   *
+   * Precedence:
+   *   1. data-base-url on this script tag  — explicit URL
+   *   2. data-env on this script tag       — 'local' | 'uat' | 'prod'
+   *   3. this script's own origin, when it matches a known checkout
+   *      deployment. In production checkout-quick.js is served from the
+   *      checkout host itself, so the correct environment is already implied
+   *      by the script tag the merchant pasted — no attribute needed.
+   *   4. nothing — SDK default (or window.EnkashCheckoutConfig, which the
+   *      SDK reads on its own).
+   */
+  function getEnvOptions() {
+    if (THIS_SCRIPT) {
+      var baseAttr = THIS_SCRIPT.getAttribute('data-base-url');
+      if (baseAttr) return { base_url: baseAttr };
+
+      var envAttr = THIS_SCRIPT.getAttribute('data-env');
+      if (envAttr) return { env: envAttr };
+    }
+
+    var inferred = inferBaseUrlFromScriptOrigin();
+    return inferred ? { base_url: inferred } : {};
+  }
+
+  // Stamps the resolved environment onto an options object, leaving it
+  // untouched when there's nothing to add so the SDK's own default applies.
+  function withEnv(options) {
+    var envOptions = getEnvOptions();
+    if (envOptions.base_url) options.base_url = envOptions.base_url;
+    if (envOptions.env) options.env = envOptions.env;
+    return options;
+  }
+
+  function inferBaseUrlFromScriptOrigin() {
+    if (!THIS_SCRIPT || !THIS_SCRIPT.src) return null;
+
+    // Read off the SDK rather than keeping a second copy of the URLs here.
+    var environments = window.EnkashCheckout && window.EnkashCheckout.ENVIRONMENTS;
+    if (!environments) return null;
+
+    var scriptOrigin;
+    try {
+      scriptOrigin = new URL(THIS_SCRIPT.src, window.location.href).origin;
+    } catch (e) {
+      return null;
+    }
+
+    var names = Object.keys(environments);
+    for (var i = 0; i < names.length; i++) {
+      if (new URL(environments[names[i]]).origin === scriptOrigin) {
+        return environments[names[i]];
+      }
+    }
+    // Served from somewhere else entirely (a merchant's own CDN, a test
+    // harness on Vercel) — can't infer anything, don't guess.
+    return null;
   }
 
   function loadSdk(callback) {
@@ -192,7 +259,7 @@
 
       var checkout;
       try {
-        checkout = new window.EnkashCheckout({
+        checkout = new window.EnkashCheckout(withEnv({
           order_id: orderId,
           handler: function (payload) {
             // Every non-voluntary outcome lands here: the gateway RESULT
@@ -213,7 +280,7 @@
               setButtonLoading(button, false);
             }
           }
-        });
+        }));
       } catch (err) {
         // Construction threw, so the SDK never got the chance to call our
         // handler. No transaction exists — same generic failure, same path.

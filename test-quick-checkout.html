@@ -61,11 +61,13 @@
       data-order_id with a real order_id created via your backend
       Orders API before loading this page.
     -->
-    <div id="enkash-quick-checkout" data-order_id="ORD1787860410764QWU8k"></div>
+    <div id="enkash-quick-checkout" data-order_id="ORD1789465138418lCREk"></div>
   </div>
 
   <div class="note">
     <strong>Local testing notes</strong><br />
+    0. Environment is set by <code>data-env</code> on the script tag at the bottom of this file
+       (currently <code>uat</code>). Change it to <code>local</code> or <code>prod</code> to switch.<br />
     1. Create a real order against UAT and paste its <code>order_id</code> above.<br />
     2. This file loads <code>checkout-quick.js</code> from <code>./checkout-quick.js</code> below —
        swap the <code>src</code> for the hosted UAT/dev URL if you're not serving both files locally.<br />
@@ -75,8 +77,17 @@
        or a request-bin so you can inspect the final query string.
   </div>
 
-  <!-- Local dev: served from the same folder as checkout-quick.js -->
-  <script src="./checkout-quick.js"></script>
+  <!--
+    Local dev / hosted harness: served from the same folder as checkout-quick.js.
+
+    data-env picks the checkout environment: local | uat | prod.
+    It is only needed because these files are served from somewhere other than
+    the checkout host itself. In a real integration the merchant loads
+    checkout-quick.js from https://checkout-uat-v3.enkash.in/ (or the prod
+    host) and the environment is inferred from that origin automatically.
+    For a one-off URL, swap data-env for data-base-url="https://…".
+  -->
+  <script src="./checkout-quick.js" data-env="uat"></script>
 
 </body>
 </html>
