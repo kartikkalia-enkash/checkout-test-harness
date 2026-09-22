@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Test Merchant — EnKash Custom Checkout</title>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-body-tertiary">
+
+<nav class="navbar navbar-dark bg-dark">
+  <div class="container-fluid">
+    <span class="navbar-brand mb-0 h1">Test Merchant <span class="text-secondary fw-normal">/ EnKash Custom Checkout</span></span>
+    <span class="text-secondary small" id="sdkVersion"></span>
+  </div>
+</nav>
+
+<div class="container-fluid py-3">
+  <div class="row g-3">
+
+    <!-- ================= LEFT: the merchant's own checkout UI ============= -->
+    <div class="col-lg-7">
+
+      <!-- ---------- Session ---------- -->
+      <div class="card mb-3">
+        <div class="card-header fw-semibold">1 &middot; Session</div>
+        <div class="card-body">
+          <div class="row g-2 align-items-end">
+            <div class="col-sm-3">
+              <label class="form-label small mb-1" for="envSelect">Environment</label>
+              <select class="form-select form-select-sm" id="envSelect">
+                <option value="uat" selected>uat</option>
+                <option value="prod">prod</option>
+                <option value="dev">dev</option>
+              </select>
+            </div>
+            <div class="col-sm-4">
+              <label class="form-label small mb-1" for="keyInput">Merchant key</label>
+              <input type="text" class="form-control form-control-sm" id="keyInput"
+                     value="TEST_KEY" placeholder="publicIdentifierKey">
+            </div>
+            <div class="col-sm-5">
+              <label class="form-label small mb-1" for="orderIdInput">Order id (ekPayId)</label>
+              <input type="text" class="form-control form-control-sm" id="orderIdInput"
+                     placeholder="ORD1784195236818VZuxB" autocomplete="off">
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-primary btn-sm" id="initBtn">Initialise checkout</button>
+            <button class="btn btn-outline-secondary btn-sm" id="resetBtn" disabled>Destroy &amp; reset</button>
+            <button class="btn btn-outline-danger btn-sm ms-auto" id="cancelBtn" disabled>Cancel order</button>
+          </div>
+          <div id="initError" class="alert alert-danger mt-3 mb-0 py-2 small d-none"></div>
+        </div>
+      </div>
+
+      <!-- ---------- Order summary ---------- -->
+      <div class="card mb-3 d-none" id="summaryCard">
+        <div class="card-header fw-semibold">2 &middot; Order (from <code>init()</code>)</div>
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-3 mb-3">
+            <img id="merchantLogo" alt="" class="merchant-logo d-none">
+            <div>
+              <div class="fw-semibold" id="merchantName">&mdash;</div>
+              <div class="text-secondary small">Order <code id="cfgOrderId">&mdash;</code></div>
+            </div>
+            <div class="ms-auto text-end">
+              <div class="text-secondary small">Order amount</div>
+              <div class="fs-4 fw-semibold" id="cfgAmount">&mdash;</div>
+            </div>
+          </div>
+          <div id="methodBadges" class="d-flex flex-wrap gap-1"></div>
+        </div>
+      </div>
+
+      <!-- ---------- Contact ---------- -->
+      <div class="card mb-3 d-none" id="contactCard">
+        <div class="card-header fw-semibold d-flex align-items-center">
+          <span>3 &middot; Contact</span>
+          <span class="badge ms-2" id="contactRequiredBadge">&mdash;</span>
+          <span class="badge text-bg-success ms-auto d-none" id="contactSavedBadge">saved</span>
+        </div>
+        <div class="card-body">
+          <div class="alert alert-secondary py-2 small d-none" id="contactSkippableNote">
+            <code>skipContactInfo</code> is true, so <code>contact.required</code> is
+            <code>false</code>. You may skip this card entirely and go straight to payment.
+            Saving anyway is allowed.
+          </div>
+
+          <div class="row g-2">
+            <div class="col-sm-6">
+              <label class="form-label small mb-1" for="mobileInput">Mobile</label>
+              <input type="tel" class="form-control form-control-sm" id="mobileInput"
+                     maxlength="10" inputmode="numeric" placeholder="9876543210" autocomplete="off">
+              <div class="form-text" id="mobileHint">10 digits, starting 6&ndash;9.</div>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small mb-1" for="emailInput">Email <span class="text-secondary">(optional)</span></label>
+              <input type="email" class="form-control form-control-sm" id="emailInput"
+                     placeholder="customer@example.com" autocomplete="off">
+              <div class="form-text" id="emailHint">&nbsp;</div>
+            </div>
+          </div>
+
+          <div class="d-flex align-items-center gap-2 mt-2">
+            <button class="btn btn-primary btn-sm" id="saveContactBtn" disabled>
+              submitContactDetails()
+            </button>
+            <button class="btn btn-outline-secondary btn-sm d-none" id="editContactBtn">
+              Edit
+            </button>
+          </div>
+
+          <div class="alert alert-success py-2 small mt-3 mb-0 d-none" id="contactResultBox"></div>
+
+          <hr class="my-3">
+
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="inlineContactSwitch">
+            <label class="form-check-label small" for="inlineContactSwitch">
+              Skip the explicit call &mdash; attach <code>contact</code> to
+              <code>createPayment()</code> instead
+            </label>
+          </div>
+          <div class="form-text">
+            Both routes are supported. Use this to test the single-screen
+            integration where the SDK saves contact just before charging.
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- Payment methods ---------- -->
+      <div class="card mb-3 d-none" id="methodsCard">
+        <div class="card-header fw-semibold">4 &middot; Payment method</div>
+        <div class="card-body p-0">
+          <div class="accordion accordion-flush" id="methodAccordion">
+
+            <!-- ======== UPI ======== -->
+            <div class="accordion-item d-none" id="upiItem">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#upiBody"
+                        data-method="UPI">UPI</button>
+              </h2>
+              <div id="upiBody" class="accordion-collapse collapse" data-bs-parent="#methodAccordion">
+                <div class="accordion-body">
+
+                  <ul class="nav nav-pills nav-sm mb-3" id="upiTabs">
+                    <li class="nav-item"><button class="nav-link active" data-upi-tab="qr">QR</button></li>
+                    <li class="nav-item"><button class="nav-link" data-upi-tab="intent">Intent apps</button></li>
+                  </ul>
+
+                  <!-- QR -->
+                  <div id="upiQrPane">
+                    <button class="btn btn-outline-primary btn-sm" id="loadQrBtn">getUpiQr()</button>
+                    <div class="mt-3 d-none" id="qrWrap">
+                      <div class="d-flex gap-3 align-items-start">
+                        <img id="qrImage" alt="UPI QR" class="qr-image">
+                        <div class="small">
+                          <div>Expires in <span class="fw-semibold" id="qrCountdown">&mdash;</span></div>
+                          <div class="text-secondary mt-1">ref <code id="qrRef">&mdash;</code></div>
+                          <details class="mt-2">
+                            <summary class="text-secondary">qrString</summary>
+                            <code class="d-block text-break mt-1" id="qrString"></code>
+                          </details>
+                        </div>
+                      </div>
+                      <button class="btn btn-success btn-sm mt-3" id="payUpiQrBtn">
+                        Pay &mdash; createPayment(flow:'qr')
+                      </button>
+                      <div class="form-text">Intentional no-op: polling already started at <code>getUpiQr()</code>.</div>
+                    </div>
+                  </div>
+
+                  <!-- Intent -->
+                  <div id="upiIntentPane" class="d-none">
+                    <button class="btn btn-outline-primary btn-sm" id="loadIntentBtn">getUpiIntentLinks()</button>
+                    <div class="form-text">Pure fetch. No transaction, no polling.</div>
+                    <div class="mt-3 d-none" id="intentWrap">
+                      <div class="text-secondary small mb-2">
+                        Tap an app &rarr; <code>createPayment(flow:'intent', app)</code> &rarr; open the returned link.
+                      </div>
+                      <div class="d-flex flex-wrap gap-2" id="intentApps"></div>
+                      <div class="alert alert-info py-2 small mt-3 mb-0 d-none" id="intentLinkBox">
+                        <div class="fw-semibold mb-1">Launch link returned</div>
+                        <a href="#" target="_blank" rel="noopener" id="intentLink" class="text-break"></a>
+                        <div class="text-secondary mt-1">
+                          Click it manually. Auto-opening is blocked here because the popup
+                          allowance is consumed by the await inside createPayment.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+
+            <!-- ======== CARD ======== -->
+            <div class="accordion-item d-none" id="cardItem">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#cardBody"
+                        data-method="CARD">Card</button>
+              </h2>
+              <div id="cardBody" class="accordion-collapse collapse" data-bs-parent="#methodAccordion">
+                <div class="accordion-body">
+                  <div class="row g-2">
+                    <div class="col-12">
+                      <label class="form-label small mb-1" for="cardNumber">Card number</label>
+                      <div class="input-group input-group-sm">
+                        <input type="text" class="form-control" id="cardNumber"
+                               inputmode="numeric" maxlength="19" autocomplete="off"
+                               placeholder="4111 1111 1111 1111">
+                        <span class="input-group-text p-1">
+                          <img id="cardNetworkLogo" alt="" class="card-net-logo d-none">
+                          <span class="small text-secondary px-1" id="cardNetworkText">&mdash;</span>
+                        </span>
+                      </div>
+                      <div class="form-text" id="cardNumberHint">
+                        Local network detection at 6 digits. <code>checkBin()</code> fires at 10.
+                      </div>
+                    </div>
+                    <div class="col-sm-4">
+                      <label class="form-label small mb-1" for="cardExpiry">Expiry</label>
+                      <input type="text" class="form-control form-control-sm" id="cardExpiry"
+                             maxlength="5" placeholder="MM/YY" autocomplete="off">
+                    </div>
+                    <div class="col-sm-4">
+                      <label class="form-label small mb-1" for="cardCvv">CVV</label>
+                      <input type="password" class="form-control form-control-sm" id="cardCvv"
+                             inputmode="numeric" maxlength="4" placeholder="123" autocomplete="off">
+                    </div>
+                    <div class="col-sm-4">
+                      <label class="form-label small mb-1" for="cardName">Name on card</label>
+                      <input type="text" class="form-control form-control-sm" id="cardName"
+                             placeholder="A B" autocomplete="off">
+                    </div>
+                  </div>
+
+                  <div class="alert py-2 small mt-3 mb-0 d-none" id="binBox"></div>
+
+                  <button class="btn btn-success btn-sm mt-3" id="payCardBtn">
+                    Pay by card
+                  </button>
+                  <div class="form-text">
+                    Requires a resolved <code>checkBin()</code>: the gateway needs
+                    <code>paymentMode</code>, which only the BIN lookup provides.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ======== NETBANKING ======== -->
+            <div class="accordion-item d-none" id="nbItem">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#nbBody"
+                        data-method="NETBANKING">Netbanking</button>
+              </h2>
+              <div id="nbBody" class="accordion-collapse collapse" data-bs-parent="#methodAccordion">
+                <div class="accordion-body">
+                  <div id="nbTopWrap" class="mb-3 d-none">
+                    <div class="text-secondary small mb-2">Popular</div>
+                    <div class="d-flex flex-wrap gap-2" id="nbTopBanks"></div>
+                  </div>
+                  <label class="form-label small mb-1" for="nbSelect">All banks</label>
+                  <select class="form-select form-select-sm" id="nbSelect">
+                    <option value="">Select a bank&hellip;</option>
+                  </select>
+                  <button class="btn btn-success btn-sm mt-3" id="payNbBtn" disabled>
+                    Pay by netbanking
+                  </button>
+                  <div class="form-text">Opens a bank tab, then polls. Keep this tab open.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ======== WALLET ======== -->
+            <div class="accordion-item d-none" id="walletItem">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#walletBody"
+                        data-method="WALLET">Wallet</button>
+              </h2>
+              <div id="walletBody" class="accordion-collapse collapse" data-bs-parent="#methodAccordion">
+                <div class="accordion-body">
+                  <div class="d-flex flex-wrap gap-2" id="walletList"></div>
+                  <button class="btn btn-success btn-sm mt-3" id="payWalletBtn" disabled>
+                    Pay by wallet
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- Amount breakdown ---------- -->
+      <div class="card mb-3 d-none" id="amountCard">
+        <div class="card-header fw-semibold">
+          5 &middot; Amount <span class="text-secondary fw-normal small">getAmountForMethod()</span>
+        </div>
+        <div class="card-body py-2">
+          <table class="table table-sm mb-0" id="amountTable"><tbody></tbody></table>
+        </div>
+      </div>
+
+      <!-- ---------- Live status ---------- -->
+      <div class="alert d-none" id="statusBox"></div>
+
+      <!-- ---------- Result ---------- -->
+      <div class="card mb-3 d-none" id="resultCard">
+        <div class="card-header fw-semibold">
+          6 &middot; handler() payload
+        </div>
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-3">
+            <span class="badge fs-6" id="resultStatus">&mdash;</span>
+            <div class="small">
+              <div><code>order_id</code> <span id="resOrderId">&mdash;</span></div>
+              <div><code>payment_id</code> <span id="resPaymentId">&mdash;</span></div>
+              <div><code>signature</code> <span id="resSignature">&mdash;</span></div>
+            </div>
+          </div>
+          <pre class="bg-body-secondary p-2 rounded small mb-0" id="resultJson"></pre>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ================= RIGHT: debug log ================= -->
+    <div class="col-lg-5">
+      <div class="card sticky-log">
+        <div class="card-header d-flex align-items-center">
+          <span class="fw-semibold">SDK event log</span>
+          <div class="form-check form-switch ms-auto me-2 mb-0">
+            <input class="form-check-input" type="checkbox" id="autoscroll" checked>
+            <label class="form-check-label small" for="autoscroll">autoscroll</label>
+          </div>
+          <button class="btn btn-outline-secondary btn-sm" id="clearLogBtn">Clear</button>
+        </div>
+        <div class="card-body p-0">
+          <div id="log" class="log"></div>
+        </div>
+      </div>
+
+      <div class="alert alert-warning small mt-3 mb-0">
+        <div class="fw-semibold">If every call fails with a network error</div>
+        The gateway allow-lists merchant origins per merchant, so
+        <code id="originNote"></code> has to be registered before any request
+        succeeds. A CORS rejection reaches the browser as an opaque failure with
+        no status, which the SDK reports as <code>NETWORK</code>.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="enkash-custom-checkout.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
