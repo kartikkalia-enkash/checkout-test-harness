@@ -1,0 +1,911 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classic T-Shirt | Dacia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!--
+  Dacia — demo storefront integrating EnKash Custom Checkout.
+
+  Unlike the hosted/iframe demo, there is no EnKash UI here at all: the QR, the
+  card form, the bank and wallet lists are all Dacia's own markup. The SDK owns
+  every gateway call and hands back one outcome through `handler`.
+
+  Order creation lives on the merchant's server and is out of scope here, so the
+  order id arrives in the URL. Open the page bare and it rewrites its own address
+  bar to `?order_id=&env=prod` for you to fill in:
+
+    index.html                             → ?order_id=&env=prod
+    index.html?order_id=ORD1784195236818VZuxB
+    index.html?order_id=...&env=uat        (env: prod | uat | dev, default prod)
+    index.html?order_id=...&key=YOUR_KEY   (merchant public key, default DEMO_KEY)
+    index.html?order_id=...&amount=100     (cosmetic storefront price, default 100)
+
+  `amount` only drives the product/cart numbers on this page. From the checkout
+  page onwards every figure is the gateway's, via init() and
+  getAmountForMethod().
+-->
+
+<style>
+  :root {
+    /* Olive */
+    --olive-950: #20260c;
+    --olive-800: #353f15;
+    --olive-700: #46531c;
+    --olive-500: #6a7150;
+    --olive-400: #858f58;
+    --olive-300: #b9c29a;
+    --olive-200: #dadec8;
+    --olive-100: #eceee1;
+    --olive-50: #f6f7ef;
+    /* Mustard */
+    --mustard-700: #8a6400;
+    --mustard-500: #dca42a;
+    --mustard-300: #f0ce6e;
+    --mustard-200: #f3dea0;
+    --mustard-50: #fdf7e6;
+    --white: #ffffff;
+
+    --text: var(--olive-950);
+    --muted: var(--olive-500);
+    --line: var(--olive-200);
+    --line-strong: var(--olive-400);
+    --primary: var(--olive-700);
+    --error: var(--mustard-700);
+
+    --r-sm: 6px;
+    --r-md: 10px;
+    --shadow: 0 1px 2px rgba(53, 63, 21, 0.05), 0 8px 24px rgba(53, 63, 21, 0.07);
+    --font: "Instrument Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color-scheme: light;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--olive-50);
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, p, dl, dd, ol, fieldset { margin: 0; }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  svg { display: block; }
+
+  :focus-visible { outline: 2px solid var(--olive-700); outline-offset: 2px; }
+  h1[tabindex="-1"]:focus { outline: none; }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  .container { width: 100%; max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* Header */
+  .site-header { position: sticky; top: 0; z-index: 10; background: var(--olive-800); }
+  .site-header__inner {
+    max-width: 1080px; margin: 0 auto; padding: 0 24px; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .site-header :focus-visible { outline-color: var(--mustard-500); }
+  .brand {
+    background: none; border: 0; padding: 4px 0;
+    color: var(--mustard-300); font-size: 21px; font-weight: 700; letter-spacing: -0.01em;
+  }
+  .cart-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 40px; padding: 0 14px;
+    border: 1px solid rgba(246, 247, 239, 0.3); border-radius: 999px; background: transparent;
+    color: var(--olive-50); font-size: 15px; font-weight: 500;
+  }
+  .cart-btn:hover { border-color: rgba(246, 247, 239, 0.7); }
+  .cart-btn__count {
+    display: inline-grid; place-items: center;
+    min-width: 22px; height: 22px; padding: 0 6px;
+    border-radius: 999px; background: var(--mustard-500); color: var(--olive-950);
+    font-size: 12px; font-weight: 700; line-height: 1;
+  }
+  .cart-btn__count.is-bumped { animation: bump 0.35s ease; }
+  @keyframes bump { 40% { transform: scale(1.3); } }
+
+  .view { padding: 40px 0 88px; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+    height: 50px; padding: 0 24px;
+    border: 1px solid transparent; border-radius: var(--r-sm);
+    font-size: 16px; font-weight: 500; white-space: nowrap;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .btn--primary { background: var(--primary); color: var(--white); }
+  .btn--primary:hover { background: var(--olive-800); }
+  .btn--primary[aria-disabled="true"] { background: #6b7843; cursor: progress; }
+  .btn--primary:disabled { background: var(--olive-300); color: var(--olive-50); cursor: not-allowed; }
+  .btn--secondary { background: var(--white); border-color: var(--line-strong); color: var(--text); }
+  .btn--secondary:hover { border-color: var(--olive-700); }
+  .btn--block { width: 100%; }
+  .link-btn {
+    background: none; border: 0; padding: 0; font-size: 14px; font-weight: 500;
+    text-decoration: underline; text-decoration-color: var(--mustard-500);
+    text-decoration-thickness: 2px; text-underline-offset: 4px;
+  }
+  .link-btn:hover { text-decoration-color: var(--olive-700); }
+
+  /* Quantity stepper */
+  .stepper {
+    display: inline-flex; height: 44px;
+    border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--white);
+  }
+  .field .stepper { justify-self: start; }
+  .stepper__btn { width: 44px; border: 0; background: none; display: grid; place-items: center; }
+  .stepper__btn:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+  .stepper__btn:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+  .stepper__btn:hover { background: var(--olive-100); }
+  .stepper__btn[aria-disabled="true"] { color: var(--olive-300); background: none; cursor: not-allowed; }
+  .stepper__btn svg { width: 16px; height: 16px; }
+  .stepper__input {
+    width: 48px; border: 0; border-inline: 1px solid var(--line);
+    background: none; text-align: center; font-weight: 500;
+    appearance: textfield; -moz-appearance: textfield;
+  }
+  .stepper__input::-webkit-outer-spin-button,
+  .stepper__input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .stepper__input:focus-visible { outline-offset: -2px; }
+  .stepper--sm { height: 38px; }
+  .stepper--sm .stepper__btn { width: 36px; }
+  .stepper--sm .stepper__input { width: 40px; }
+
+  /* Product page */
+  .pdp { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 64px; align-items: start; }
+  .gallery__main {
+    aspect-ratio: 1 / 1; overflow: hidden;
+    border-radius: var(--r-md); background: var(--mustard-300);
+  }
+  .gallery__main svg, .thumb svg, .line__thumb svg, .mini-line__thumb svg { width: 100%; height: 100%; }
+  .gallery__thumbs { display: flex; gap: 12px; margin-top: 12px; }
+  .thumb {
+    flex: 0 0 84px; aspect-ratio: 1 / 1; padding: 0; overflow: hidden;
+    border: 2px solid transparent; border-radius: var(--r-sm); background: var(--mustard-300);
+  }
+  .thumb:hover { border-color: var(--olive-300); }
+  .thumb[aria-pressed="true"] { border-color: var(--olive-700); }
+
+  .pdp__info { max-width: 440px; padding-top: 8px; }
+  .pdp__title { font-size: 34px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; }
+  .pdp__price { margin-top: 12px; font-size: 22px; font-weight: 600; color: var(--olive-700); }
+  .pdp__tax { margin-top: 2px; font-size: 13px; color: var(--muted); }
+  .pdp__desc { margin-top: 20px; max-width: 46ch; }
+  .pdp__buy { display: grid; gap: 20px; margin-top: 28px; padding-top: 28px; border-top: 1px solid var(--line); }
+
+  .added {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+    padding: 14px 16px; border: 1px solid var(--mustard-200); border-radius: var(--r-sm); background: var(--mustard-50);
+  }
+  .added.is-new { animation: settle 0.25s ease; }
+  @keyframes settle { from { opacity: 0; transform: translateY(4px); } }
+  .added__body { display: flex; gap: 10px; }
+  .added__icon {
+    flex: none; width: 20px; height: 20px; margin-top: 1px; border-radius: 50%;
+    background: var(--olive-700); color: var(--white); display: grid; place-items: center;
+  }
+  .added__icon svg { width: 12px; height: 12px; }
+  .added__title { font-size: 15px; font-weight: 600; }
+  .added__meta { font-size: 14px; color: var(--muted); }
+  .added .link-btn { flex: none; margin-top: 1px; }
+
+  /* Shared form bits */
+  .field { display: grid; gap: 6px; align-content: start; }
+  .field + .field, .field + .field-row, .field-row + .field { margin-top: 18px; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .field-row .field + .field { margin-top: 0; }
+  .field__label { font-size: 14px; font-weight: 500; }
+  .field__hint { font-size: 13px; color: var(--muted); }
+  .field__error { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--error); }
+  .field__error:empty { display: none; }
+  .field__error::before {
+    content: "!"; flex: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--error); color: var(--white);
+    font-size: 11px; font-weight: 700; line-height: 16px; text-align: center;
+  }
+  .input {
+    width: 100%; height: 46px; padding: 0 14px;
+    border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--white);
+    font-size: 16px;
+  }
+  .input::placeholder { color: #9aa07f; }
+  .input:hover { border-color: var(--olive-700); }
+  .input:focus { border-color: var(--olive-700); }
+  .input[aria-invalid="true"] { border: 2px solid var(--error); padding: 0 13px; }
+  .input--secret { -webkit-text-security: disc; }
+  .input:disabled { background: var(--olive-100); color: var(--muted); }
+  select.input { appearance: none; padding-right: 38px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2346531c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center; background-size: 16px 16px; }
+
+  /* Card number input with a brand mark on the right */
+  .input-with-mark { position: relative; }
+  .input-with-mark .input { padding-right: 60px; }
+  .input-mark {
+    position: absolute; top: 50%; right: 12px; transform: translateY(-50%);
+    height: 22px; width: 34px; object-fit: contain;
+  }
+
+  /* Page headings */
+  .page-title { font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -0.02em; }
+  .page-sub { margin-top: 6px; font-size: 15px; color: var(--muted); }
+  .back-link {
+    display: inline-flex; align-items: center; gap: 4px; margin-bottom: 14px;
+    background: none; border: 0; padding: 4px 0; font-size: 14px; color: var(--olive-700);
+  }
+  .back-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .back-link svg { width: 16px; height: 16px; }
+
+  /* Summary card */
+  .summary {
+    padding: 24px; background: var(--white);
+    border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow);
+  }
+  .summary__title { font-size: 17px; font-weight: 600; }
+  .totals { display: grid; gap: 10px; margin: 16px 0 20px; font-size: 15px; }
+  .totals > div { display: flex; justify-content: space-between; gap: 16px; }
+  .totals dt { color: var(--muted); }
+  .totals__grand { margin-top: 4px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 17px; font-weight: 600; }
+  .totals__grand dt { color: var(--text); }
+  .summary__back { display: block; margin: 16px auto 0; }
+  .summary__note { margin-top: 12px; font-size: 13px; color: var(--muted); text-align: center; }
+  .summary__merchant {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line);
+    font-size: 13px; color: var(--muted);
+  }
+  .summary__merchant img { height: 24px; max-width: 90px; object-fit: contain; }
+
+  /* Cart */
+  .cart-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 40px; align-items: start; margin-top: 28px; }
+  .cart-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .line {
+    display: grid; grid-template-columns: 96px minmax(0, 1fr) auto 88px;
+    grid-template-areas: "thumb info qty total";
+    gap: 20px; align-items: center; padding: 20px 0; border-bottom: 1px solid var(--line);
+  }
+  .line__thumb { grid-area: thumb; width: 96px; aspect-ratio: 1 / 1; overflow: hidden; border-radius: var(--r-sm); background: var(--mustard-300); }
+  .line__info { grid-area: info; }
+  .line .stepper { grid-area: qty; }
+  .line__name { font-weight: 500; }
+  .line__meta { margin-top: 2px; font-size: 14px; color: var(--muted); }
+  .line__remove { margin-top: 10px; }
+  .line__total { grid-area: total; text-align: right; font-weight: 600; }
+
+  .empty {
+    display: grid; justify-items: center; gap: 6px; margin-top: 28px; padding: 56px 24px;
+    background: var(--white); border: 1px dashed var(--line-strong); border-radius: var(--r-md); text-align: center;
+  }
+  .empty__title { font-size: 17px; font-weight: 600; }
+  .empty__text { color: var(--muted); font-size: 15px; }
+  .empty .btn { margin-top: 14px; }
+
+  /* Checkout */
+  .checkout-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 32px; align-items: start; margin-top: 28px; }
+  .summary--sticky { position: sticky; top: 88px; }
+  .pay-card {
+    overflow: hidden; background: var(--white);
+    border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow);
+  }
+  .pay-card__title {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 18px 24px; border-bottom: 1px solid var(--line); font-size: 17px; font-weight: 600;
+  }
+  .pay-card__badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 500; color: var(--muted);
+  }
+  .pay-card__badge svg { width: 14px; height: 14px; color: var(--olive-700); }
+  .pay-card__body { container: paybody / inline-size; }
+  .pay-grid { display: grid; }
+
+  /* Loading / error states inside the pay card */
+  .pay-state { display: grid; gap: 12px; justify-items: center; padding: 56px 24px; text-align: center; }
+  .pay-state__spinner {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 3px solid var(--olive-200); border-top-color: var(--olive-700);
+    animation: spin 0.8s linear infinite;
+  }
+  .pay-state__title { font-size: 16px; font-weight: 600; }
+  .pay-state__text { max-width: 44ch; font-size: 14px; color: var(--muted); }
+
+  /* Contact step */
+  .contact { padding: 24px 28px 28px; }
+  .contact__title { font-size: 16px; font-weight: 600; }
+  .contact__text { margin-top: 4px; max-width: 52ch; font-size: 14px; color: var(--muted); }
+  .contact__form { margin-top: 20px; max-width: 420px; }
+  .contact__actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 22px; }
+  .contact__saved {
+    display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline;
+    padding: 12px 14px; border: 1px solid var(--mustard-200); border-radius: var(--r-sm);
+    background: var(--mustard-50); font-size: 14px;
+  }
+  .contact__saved code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+
+  /* Method rail */
+  .methods { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-width: 0; padding: 16px; border: 0; }
+  .method {
+    position: relative; display: flex; align-items: center; gap: 12px;
+    padding: 12px; cursor: pointer; background: var(--white);
+    border: 1px solid var(--line); border-radius: var(--r-sm);
+  }
+  .method:hover { border-color: var(--line-strong); }
+  .method:has(input:checked) { border-color: var(--olive-700); box-shadow: 0 0 0 1px var(--olive-700); background: var(--mustard-50); }
+  .method:has(input:focus-visible) { outline: 2px solid var(--olive-700); outline-offset: 2px; }
+  .method__icon {
+    flex: none; width: 36px; height: 36px; display: grid; place-items: center;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--white); color: var(--olive-700);
+    overflow: hidden;
+  }
+  .method__icon svg { width: 20px; height: 20px; }
+  .method__icon img { width: 22px; height: 22px; object-fit: contain; }
+  .method:has(input:checked) .method__icon { background: var(--mustard-500); border-color: var(--mustard-500); color: var(--olive-950); }
+  .method__text { display: grid; min-width: 0; }
+  .method__name { font-size: 15px; font-weight: 500; }
+  .method__hint { font-size: 13px; color: var(--muted); }
+
+  .panels { container: panel / inline-size; border-top: 1px solid var(--line); }
+  .panel { padding: 20px 16px 24px; }
+  .panel__title { margin-bottom: 16px; font-size: 16px; font-weight: 600; }
+  .panel__note { margin-top: 16px; font-size: 13px; color: var(--muted); }
+  .panel__marks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .panel__marks img { height: 22px; max-width: 40px; object-fit: contain; }
+
+  /* UPI: mode switch */
+  .segment {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px; min-width: 0;
+    padding: 4px; border: 0; border-radius: 8px; background: var(--olive-100);
+  }
+  .segment--single { grid-template-columns: 1fr; }
+  .segment__opt {
+    position: relative; display: flex; align-items: center; justify-content: center; gap: 8px;
+    height: 40px; padding: 0 10px; border-radius: 6px; cursor: pointer;
+    font-size: 14px; font-weight: 500; color: var(--olive-500); white-space: nowrap;
+  }
+  .segment__opt svg { width: 16px; height: 16px; flex: none; }
+  .segment__opt:hover { color: var(--text); }
+  .segment__opt:has(input:checked) { background: var(--olive-700); color: var(--white); }
+  .segment__opt:has(input:focus-visible) { outline: 2px solid var(--olive-700); outline-offset: 2px; }
+  .upi-mode { margin-top: 20px; }
+
+  /* UPI: QR */
+  .upi-qr { display: grid; gap: 20px; }
+  .qr-card {
+    justify-self: center; width: 100%; max-width: 220px; padding: 12px; text-align: center;
+    border: 1px solid var(--line); border-radius: var(--r-md); background: var(--white);
+  }
+  .qr-card img { width: 100%; height: auto; display: block; border-radius: 4px; }
+  .qr-card__placeholder {
+    display: grid; place-items: center; aspect-ratio: 1 / 1;
+    border-radius: 4px; background: var(--olive-100); color: var(--muted); font-size: 13px;
+  }
+  .qr-card__amount { margin-top: 8px; font-size: 18px; font-weight: 600; }
+  .qr-card__status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .qr-card__pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--mustard-500); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+  .qr-card__timer { margin-top: 2px; font-size: 13px; font-weight: 600; color: var(--olive-700); }
+  .steps { display: grid; gap: 10px; padding: 0; list-style: none; counter-reset: step; font-size: 14px; }
+  .steps li { display: flex; gap: 10px; align-items: flex-start; counter-increment: step; }
+  .steps li::before {
+    content: counter(step); flex: none; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--mustard-200); color: var(--olive-950);
+    font-size: 12px; font-weight: 700; line-height: 22px; text-align: center;
+  }
+  .steps__title { margin-bottom: 12px; font-size: 15px; font-weight: 600; }
+  .upi-qr .field__hint { margin-top: 14px; }
+
+  /* Tiles (banks, wallets, upi apps) */
+  .tiles { min-width: 0; padding: 0; border: 0; }
+  .tiles legend { padding: 0; margin-bottom: 10px; }
+  .tiles__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tiles .field__error { margin-top: 12px; }
+  .tile {
+    position: relative; display: flex; align-items: center; gap: 10px;
+    width: 100%; min-height: 48px; padding: 12px 14px; cursor: pointer;
+    font-size: 15px; font-weight: 500; text-align: left;
+    border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--white);
+  }
+  .tile:hover { border-color: var(--line-strong); }
+  .tile.is-active, .tile:has(input:checked) { border-color: var(--olive-700); box-shadow: 0 0 0 1px var(--olive-700); background: var(--mustard-50); }
+  .tile:has(input:focus-visible) { outline: 2px solid var(--olive-700); outline-offset: 2px; }
+  .tile:disabled { opacity: 0.5; cursor: not-allowed; }
+  .tile__logo { flex: none; width: 26px; height: 26px; object-fit: contain; }
+  .tile__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .apps__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+
+  @container paybody (min-width: 600px) {
+    .pay-grid { grid-template-columns: 220px minmax(0, 1fr); min-height: 420px; }
+    .methods { grid-template-columns: 1fr; align-content: start; border-right: 1px solid var(--line); background: var(--olive-50); }
+    .panels { border-top: 0; }
+    .panel { padding: 24px 28px 28px; }
+  }
+  @container paybody (max-width: 400px) {
+    .method__hint { display: none; }
+  }
+  @container panel (min-width: 420px) {
+    .upi-qr { grid-template-columns: 180px minmax(0, 1fr); align-items: start; gap: 22px; }
+    .qr-card { justify-self: stretch; }
+  }
+  @container panel (max-width: 340px) {
+    .tiles__grid { grid-template-columns: 1fr; }
+  }
+
+  /* Alerts */
+  .alert {
+    display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; align-items: start;
+    padding: 14px 16px; border-radius: var(--r-sm); font-size: 14px;
+  }
+  .alert::before {
+    content: ""; width: 20px; height: 20px; border-radius: 50%;
+    background: currentColor no-repeat center / 12px 12px;
+  }
+  .alert strong { display: block; font-size: 15px; }
+  .alert--info { border: 1px solid var(--mustard-200); background: var(--mustard-50); color: var(--olive-800); }
+  .alert--info::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fdf7e6'%3E%3Cpath d='M11 10h2v8h-2zM11 6h2v2.4h-2z'/%3E%3C/svg%3E");
+  }
+  .alert--ok { border: 1px solid var(--olive-300); background: var(--olive-100); color: var(--olive-800); }
+  .alert--ok::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23eceee1' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+  }
+  .alert--error { border: 1px solid #e6c98f; background: #fdf3e2; color: var(--error); }
+  .alert--error::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fdf3e2'%3E%3Cpath d='M11 6h2v8h-2zM11 16h2v2h-2z'/%3E%3C/svg%3E");
+  }
+  .panel > .alert, .contact > .alert { margin-top: 16px; }
+
+  .mini-line {
+    display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+    margin-top: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line);
+  }
+  .mini-line__thumb { width: 56px; aspect-ratio: 1 / 1; overflow: hidden; border-radius: var(--r-sm); background: var(--mustard-300); }
+  .mini-line__name { font-size: 15px; font-weight: 500; }
+  .mini-line__qty { font-size: 13px; color: var(--muted); }
+  .mini-line__price { font-weight: 600; }
+  .checkout-layout .totals { margin-top: 16px; }
+
+  .spinner {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: var(--white);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Confirmation */
+  .confirm { display: grid; place-items: center; }
+  .confirm__card {
+    width: 100%; max-width: 480px; padding: 40px 32px 32px; text-align: center; background: var(--white);
+    border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow);
+  }
+  .confirm__icon {
+    width: 60px; height: 60px; margin: 0 auto; border-radius: 50%;
+    background: var(--mustard-500); color: var(--olive-950); display: grid; place-items: center;
+    animation: pop 0.35s ease both;
+  }
+  .confirm__icon svg { width: 28px; height: 28px; }
+  .confirm__icon--fail { background: var(--olive-200); }
+  @keyframes pop { from { transform: scale(0.6); opacity: 0; } }
+  .confirm__title { margin-top: 20px; font-size: 26px; line-height: 1.2; font-weight: 600; letter-spacing: -0.02em; }
+  .confirm__text { max-width: 38ch; margin: 8px auto 0; font-size: 15px; color: var(--muted); }
+  .receipt { margin: 28px 0; text-align: left; border-top: 1px solid var(--line); }
+  .receipt > div { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .receipt dt { color: var(--muted); }
+  .receipt dd { font-weight: 500; text-align: right; word-break: break-all; }
+  .confirm__actions { display: grid; gap: 10px; }
+
+  /* Demo config strip */
+  .demobar {
+    position: fixed; inset: auto 0 0 0; z-index: 9;
+    display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; justify-content: center;
+    padding: 8px 16px; background: var(--olive-950); color: var(--olive-200);
+    font-size: 12px; line-height: 1.4;
+  }
+  .demobar code { color: var(--mustard-300); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .demobar__warn { color: var(--mustard-300); font-weight: 600; }
+
+  /* Responsive */
+  @media (max-width: 860px) {
+    .pdp { grid-template-columns: 1fr; gap: 32px; }
+    .pdp__info { max-width: none; padding-top: 0; }
+    .cart-layout, .checkout-layout { grid-template-columns: 1fr; gap: 24px; }
+    .summary--sticky { position: static; }
+  }
+  @media (max-width: 600px) {
+    .container, .site-header__inner { padding: 0 16px; }
+    .view { padding: 24px 0 72px; }
+    .pdp__title { font-size: 28px; }
+    .thumb { flex: 1 1 0; max-width: 96px; }
+    .line {
+      grid-template-columns: 80px auto minmax(0, 1fr);
+      grid-template-areas: "thumb info info" "thumb qty total";
+      column-gap: 16px; row-gap: 12px; align-items: start;
+    }
+    .line__thumb { width: 80px; }
+    .line__total { align-self: center; }
+    .summary { padding: 20px; }
+    .contact { padding: 20px 16px 24px; }
+    .confirm__card { padding: 32px 20px 24px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <button class="brand" type="button" data-nav="product">Dacia</button>
+    <button class="cart-btn" id="cart-btn" type="button" data-nav="cart" aria-label="Cart, 0 items">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 8h13l-1 12h-11l-1-12z"/><path d="M9 8V7a3 3 0 0 1 6 0v1"/></svg>
+      <span>Cart</span>
+      <span class="cart-btn__count" id="cart-count" hidden>0</span>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!-- Product -->
+  <section class="view" id="view-product" data-view="product" aria-labelledby="product-title">
+    <div class="container pdp">
+      <div class="gallery">
+        <div class="gallery__main" id="main-image" role="img" aria-label="Classic T-Shirt, front view"></div>
+        <div class="gallery__thumbs" role="group" aria-label="Product images">
+          <button class="thumb" type="button" aria-pressed="true" aria-label="Show front view"></button>
+          <button class="thumb" type="button" aria-pressed="false" aria-label="Show back view"></button>
+          <button class="thumb" type="button" aria-pressed="false" aria-label="Show folded view"></button>
+        </div>
+      </div>
+
+      <div class="pdp__info">
+        <h1 class="pdp__title" id="product-title" tabindex="-1">Classic T-Shirt</h1>
+        <p class="pdp__price" id="pdp-price">₹100</p>
+        <p class="pdp__tax">Inclusive of all taxes</p>
+        <p class="pdp__desc">A midweight cotton tee with a regular fit and a ribbed crew neck. Pre-washed, so it holds its shape after every wash.</p>
+
+        <div class="pdp__buy">
+          <div class="field">
+            <label class="field__label" for="pdp-qty">Quantity</label>
+            <div class="stepper" id="pdp-stepper">
+              <button class="stepper__btn" type="button" data-step="-1" aria-label="Decrease quantity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+              <input class="stepper__input" id="pdp-qty" type="number" inputmode="numeric" min="1" max="10" value="1">
+              <button class="stepper__btn" type="button" data-step="1" aria-label="Increase quantity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+            </div>
+          </div>
+
+          <button class="btn btn--primary btn--block" id="add-to-cart" type="button">Add to Cart</button>
+
+          <div class="added" id="added" hidden>
+            <div class="added__body">
+              <span class="added__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+              <div>
+                <p class="added__title" id="added-title">Added to cart</p>
+                <p class="added__meta" id="added-meta"></p>
+              </div>
+            </div>
+            <button class="link-btn" type="button" data-nav="cart">View cart</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Cart -->
+  <section class="view" id="view-cart" data-view="cart" aria-labelledby="cart-title" hidden>
+    <div class="container">
+      <h1 class="page-title" id="cart-title" tabindex="-1">Your cart</h1>
+
+      <div class="empty" id="cart-empty" hidden>
+        <p class="empty__title">Your cart is empty</p>
+        <p class="empty__text">Add the Classic T-Shirt to check out.</p>
+        <button class="btn btn--secondary" type="button" data-nav="product">Continue shopping</button>
+      </div>
+
+      <div class="cart-layout" id="cart-filled">
+        <ul class="cart-list" aria-label="Items in your cart">
+          <li class="line">
+            <div class="line__thumb" id="cart-thumb" aria-hidden="true"></div>
+            <div class="line__info">
+              <p class="line__name">Classic T-Shirt</p>
+              <p class="line__meta" id="cart-unit">₹100 each</p>
+              <button class="link-btn line__remove" id="remove-item" type="button" aria-label="Remove Classic T-Shirt from cart">Remove</button>
+            </div>
+            <div class="stepper stepper--sm" id="cart-stepper">
+              <button class="stepper__btn" type="button" data-step="-1" aria-label="Decrease quantity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+              <input class="stepper__input" id="cart-qty" type="number" inputmode="numeric" min="1" max="10" value="1" aria-label="Quantity of Classic T-Shirt">
+              <button class="stepper__btn" type="button" data-step="1" aria-label="Increase quantity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+            </div>
+            <p class="line__total" id="line-total">₹100</p>
+          </li>
+        </ul>
+
+        <aside class="summary" aria-labelledby="cart-summary-title">
+          <h2 class="summary__title" id="cart-summary-title">Order summary</h2>
+          <dl class="totals">
+            <div><dt>Subtotal (<span id="cart-items">1 item</span>)</dt><dd id="cart-subtotal">₹100</dd></div>
+            <div><dt>Shipping</dt><dd>Free</dd></div>
+            <div class="totals__grand"><dt>Total</dt><dd id="cart-total">₹100</dd></div>
+          </dl>
+          <button class="btn btn--primary btn--block" type="button" data-nav="checkout">Proceed to Checkout</button>
+          <button class="link-btn summary__back" type="button" data-nav="product">Continue shopping</button>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- Checkout -->
+  <section class="view" id="view-checkout" data-view="checkout" aria-labelledby="checkout-title" hidden>
+    <div class="container">
+      <button class="back-link" type="button" data-nav="cart">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+        Back to cart
+      </button>
+      <h1 class="page-title" id="checkout-title" tabindex="-1">Checkout</h1>
+      <p class="page-sub">Pay without leaving Dacia. Payments are processed by EnKash.</p>
+
+      <div class="checkout-layout">
+        <section class="pay-card" aria-labelledby="pay-title">
+          <h2 class="pay-card__title" id="pay-title">
+            <span>Payment method</span>
+            <span class="pay-card__badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/></svg>
+              Secured by EnKash
+            </span>
+          </h2>
+          <div class="pay-card__body">
+
+            <!-- Loading -->
+            <div class="pay-state" id="pay-loading">
+              <div class="pay-state__spinner" aria-hidden="true"></div>
+              <p class="pay-state__title">Loading payment options</p>
+              <p class="pay-state__text">Fetching this order from EnKash.</p>
+            </div>
+
+            <!-- Init failure -->
+            <div class="pay-state" id="pay-error" hidden>
+              <p class="pay-state__title" id="pay-error-title">Payment options unavailable</p>
+              <p class="pay-state__text" id="pay-error-text"></p>
+              <button class="btn btn--secondary" id="pay-retry-init" type="button">Try again</button>
+            </div>
+
+            <!-- Contact step -->
+            <div class="contact" id="contact-step" hidden>
+              <p class="contact__title">Contact details</p>
+              <p class="contact__text">We'll send your payment receipt here. Required by the payment gateway for this order.</p>
+
+              <div class="contact__form" id="contact-form">
+                <div class="field">
+                  <label class="field__label" for="contact-mobile">Mobile number</label>
+                  <input class="input" id="contact-mobile" type="tel" inputmode="numeric" placeholder="10-digit mobile" autocomplete="tel-national" maxlength="10" aria-describedby="contact-mobile-hint contact-mobile-error">
+                  <p class="field__hint" id="contact-mobile-hint">10 digits, starting 6&ndash;9.</p>
+                  <p class="field__error" id="contact-mobile-error"></p>
+                </div>
+                <div class="field">
+                  <label class="field__label" for="contact-email">Email <span class="field__hint">(optional)</span></label>
+                  <input class="input" id="contact-email" type="email" placeholder="you@example.com" autocomplete="email" spellcheck="false" aria-describedby="contact-email-error">
+                  <p class="field__error" id="contact-email-error"></p>
+                </div>
+              </div>
+
+              <div class="contact__actions">
+                <button class="btn btn--primary" id="contact-continue" type="button">
+                  <span class="spinner" id="contact-spinner" aria-hidden="true" hidden></span>
+                  <span id="contact-continue-label">Continue to payment</span>
+                </button>
+              </div>
+
+              <div class="alert alert--error" id="contact-alert" hidden>
+                <div><strong>Couldn't save your details</strong><span id="contact-alert-text"></span></div>
+              </div>
+            </div>
+
+            <!-- Methods -->
+            <div class="pay-grid" id="pay-grid" hidden>
+              <fieldset class="methods" id="methods">
+                <legend class="sr-only">Choose a payment method</legend>
+              </fieldset>
+
+              <div class="panels" id="panels">
+                <!-- UPI -->
+                <div class="panel" data-panel="UPI" hidden>
+                  <h3 class="panel__title">Pay with UPI</h3>
+
+                  <fieldset class="segment" id="upi-segment">
+                    <legend class="sr-only">How do you want to pay with UPI?</legend>
+                    <label class="segment__opt" id="upi-mode-qr-opt">
+                      <input class="sr-only" type="radio" name="upiMode" value="qr" checked>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/><rect x="3.5" y="14.5" width="6" height="6" rx="1"/><path d="M14.5 14.5h2.5v2.5M20.5 14.5v.01M14.5 20.5h.01M17.5 20.5h3v-3"/></svg>
+                      Scan QR &amp; Pay
+                    </label>
+                    <label class="segment__opt" id="upi-mode-intent-opt">
+                      <input class="sr-only" type="radio" name="upiMode" value="intent">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
+                      Pay via UPI app
+                    </label>
+                  </fieldset>
+
+                  <!-- QR -->
+                  <div class="upi-mode upi-qr" data-upi="qr">
+                    <div class="qr-card">
+                      <div class="qr-card__placeholder" id="qr-placeholder">Loading QR&hellip;</div>
+                      <img id="qr-image" alt="UPI QR code for this payment" hidden>
+                      <p class="qr-card__amount" id="qr-amount">&nbsp;</p>
+                      <p class="qr-card__status"><span class="qr-card__pulse" aria-hidden="true"></span>Waiting for payment</p>
+                      <p class="qr-card__timer" id="qr-timer">&nbsp;</p>
+                    </div>
+                    <div>
+                      <p class="steps__title">Scan with any UPI app</p>
+                      <ol class="steps">
+                        <li><span>Open any UPI app on your phone.</span></li>
+                        <li><span>Scan this QR code.</span></li>
+                        <li><span>Approve the payment of <span id="qr-amount-inline">the order total</span>.</span></li>
+                      </ol>
+                      <p class="field__hint">Keep this page open. We confirm the payment automatically once you approve it.</p>
+                      <div class="alert alert--error" id="qr-alert" hidden>
+                        <div><strong>QR unavailable</strong><span id="qr-alert-text"></span></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Intent -->
+                  <div class="upi-mode" data-upi="intent" hidden>
+                    <fieldset class="tiles">
+                      <legend class="field__label">Choose your UPI app</legend>
+                      <div class="apps__grid" id="upi-apps"></div>
+                    </fieldset>
+                    <p class="panel__note">Tapping an app opens it to approve the payment. Come back here afterwards &mdash; we confirm the outcome on this page.</p>
+                    <div class="alert alert--error" id="intent-alert" hidden>
+                      <div><strong>UPI apps unavailable</strong><span id="intent-alert-text"></span></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Card -->
+                <div class="panel" data-panel="CARD" hidden>
+                  <h3 class="panel__title">Pay with card</h3>
+                  <div class="panel__marks" id="card-marks"></div>
+
+                  <div class="field">
+                    <label class="field__label" for="card-number">Card number</label>
+                    <div class="input-with-mark">
+                      <input class="input" id="card-number" type="text" inputmode="numeric" placeholder="1234 5678 9012 3456" maxlength="23" autocomplete="cc-number" aria-describedby="card-number-hint card-number-error">
+                      <img class="input-mark" id="card-network-mark" alt="" hidden>
+                    </div>
+                    <p class="field__hint" id="card-number-hint">Credit, debit and prepaid cards accepted.</p>
+                    <p class="field__error" id="card-number-error"></p>
+                  </div>
+                  <div class="field-row">
+                    <div class="field">
+                      <label class="field__label" for="card-expiry">Expiry</label>
+                      <input class="input" id="card-expiry" type="text" inputmode="numeric" placeholder="MM/YY" maxlength="5" autocomplete="cc-exp" aria-describedby="card-expiry-error">
+                      <p class="field__error" id="card-expiry-error"></p>
+                    </div>
+                    <div class="field">
+                      <label class="field__label" for="card-cvv">CVV</label>
+                      <input class="input input--secret" id="card-cvv" type="text" inputmode="numeric" placeholder="123" maxlength="3" autocomplete="cc-csc" aria-describedby="card-cvv-error">
+                      <p class="field__error" id="card-cvv-error"></p>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label class="field__label" for="card-name">Name on card</label>
+                    <input class="input" id="card-name" type="text" placeholder="As printed on the card" autocomplete="cc-name" aria-describedby="card-name-error">
+                    <p class="field__error" id="card-name-error"></p>
+                  </div>
+
+                  <div class="alert alert--ok" id="bin-ok" hidden>
+                    <div><strong id="bin-ok-title">Card accepted</strong><span id="bin-ok-text"></span></div>
+                  </div>
+                  <div class="alert alert--error" id="bin-error" hidden>
+                    <div><strong id="bin-error-title">Card not accepted</strong><span id="bin-error-text"></span></div>
+                  </div>
+                  <p class="panel__note">You may be asked to approve the payment with your bank in a new tab.</p>
+                </div>
+
+                <!-- Netbanking -->
+                <div class="panel" data-panel="NETBANKING" hidden>
+                  <h3 class="panel__title">Pay with netbanking</h3>
+                  <fieldset class="tiles" id="nb-top-wrap" hidden>
+                    <legend class="field__label">Popular banks</legend>
+                    <div class="tiles__grid" id="nb-top-banks"></div>
+                  </fieldset>
+                  <div class="field">
+                    <label class="field__label" for="nb-select">All banks</label>
+                    <select class="input" id="nb-select">
+                      <option value="">Select your bank&hellip;</option>
+                    </select>
+                    <p class="field__error" id="nb-error"></p>
+                  </div>
+                  <p class="panel__note">You'll approve the payment on your bank's page in a new tab, then come back here.</p>
+                </div>
+
+                <!-- Wallet -->
+                <div class="panel" data-panel="WALLET" hidden>
+                  <h3 class="panel__title">Pay with a wallet</h3>
+                  <fieldset class="tiles">
+                    <legend class="field__label">Choose your wallet</legend>
+                    <div class="tiles__grid" id="wallet-list"></div>
+                    <p class="field__error" id="wallet-error"></p>
+                  </fieldset>
+                  <p class="panel__note">You'll approve the payment in your wallet in a new tab, then come back here.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="summary summary--sticky" aria-labelledby="checkout-summary-title">
+          <h2 class="summary__title" id="checkout-summary-title">Order summary</h2>
+          <div class="mini-line">
+            <div class="mini-line__thumb" id="checkout-thumb" aria-hidden="true"></div>
+            <div>
+              <p class="mini-line__name">Classic T-Shirt</p>
+              <p class="mini-line__qty" id="co-qty">Qty 1</p>
+            </div>
+            <p class="mini-line__price" id="co-line">₹100</p>
+          </div>
+          <dl class="totals" id="co-totals">
+            <div><dt>Order amount</dt><dd id="co-amount">&mdash;</dd></div>
+            <div class="totals__grand"><dt>Total payable</dt><dd id="co-total">&mdash;</dd></div>
+          </dl>
+
+          <button class="btn btn--primary btn--block" id="pay-btn" type="button" hidden>
+            <span class="spinner" id="pay-spinner" aria-hidden="true" hidden></span>
+            <span id="pay-label">Pay now</span>
+          </button>
+
+          <div class="alert alert--info" id="pay-status" hidden>
+            <div><strong id="pay-status-title">Waiting for payment</strong><span id="pay-status-text"></span></div>
+          </div>
+
+          <p class="summary__note" id="summary-note">Amounts confirmed by EnKash for this order.</p>
+
+          <div class="summary__merchant" id="summary-merchant" hidden>
+            <img id="merchant-logo" alt="" hidden>
+            <span id="merchant-name"></span>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- Confirmation / failure -->
+  <section class="view" id="view-confirmation" data-view="confirmation" aria-labelledby="confirm-title" hidden>
+    <div class="container confirm">
+      <div class="confirm__card">
+        <div class="confirm__icon" id="confirm-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+        <h1 class="confirm__title" id="confirm-title" tabindex="-1">Payment successful</h1>
+        <p class="confirm__text" id="confirm-text">Thanks — your order is confirmed. A receipt is on its way to your email.</p>
+        <dl class="receipt" id="receipt"></dl>
+        <div class="confirm__actions">
+          <button class="btn btn--primary btn--block" type="button" data-nav="product">Back to store</button>
+          <button class="btn btn--secondary btn--block" id="retry-btn" type="button" hidden>Try payment again</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="demobar" id="demobar"></div>
+<div class="sr-only" id="announcer" aria-live="polite"></div>
+
+<script src="../custom-checkout/enkash-custom-checkout.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
