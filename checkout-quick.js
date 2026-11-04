@@ -1,92 +1,58 @@
 /**
  * EnKash Quick Checkout
- * A zero-JS wrapper over EnkashCheckout (checkout-sdk.js).
  *
- * Merchant usage — this is the ENTIRE integration, no other JS required:
+ *   <div id="enkash-quick-checkout"
+ *        data-order_id="ORD_FROM_YOUR_SERVER"
+ *        data-merchant-access-key="MERCHANT_ACCESS_KEY"></div>
+ *   <script src="https://checkoutv3.enkash.com/checkout-quick.js"></script>
  *
- *   <div id="enkash-quick-checkout" data-order_id="order_xxx"></div>
- *   <script src="https://checkout-uat-v3.enkash.in/checkout-quick.js"></script>
+ * No merchant JavaScript. Injects a Pay button, opens hosted checkout, and on
+ * a terminal state redirects the browser to the order's return URL with the
+ * payment result appended as query params (same as standalone checkout).
  *
- * Multiple buttons on one page are supported too — just repeat the marker:
- *
- *   <div class="enkash-quick-checkout" data-order_id="order_aaa"></div>
- *   <div class="enkash-quick-checkout" data-order_id="order_bbb"></div>
- *   <script src="https://checkout-uat-v3.enkash.in/checkout-quick.js"></script>
- *
- * What this file does, in order:
- *   1. Loads checkout-sdk.js (EnkashCheckout) from the same host, if not
- *      already present on the page.
- *   2. Finds every element marked as a Quick Checkout container and injects
- *      our own branded "Pay with EnKash" button into it. Merchant does not
- *      style this button.
- *   3. On click, opens the existing EnkashCheckout iframe with the given
- *      order_id — identical to Standard Checkout under the hood.
- *   4. Supplies its OWN internal `handler` (the merchant never writes one).
- *      When the iframe returns a result (success or failure — the iframe
- *      already renders the failure state itself before returning), this
- *      handler redirects the top-level page to the merchant's returnUrl,
- *      exactly the way the status page's buildStatusRedirectUri() does:
- *      strip internal-only fields, append the rest as a query string, and
- *      navigate. No merchant JS is ever invoked. Failures that happen before
- *      a transaction exists (SDK file unreachable, checkout never loading)
- *      travel the same route as { status: "FAILED",
- *      reason: "checkout_unavailable" }.
+ * Loads EnkashCheckout from `{origin}/assets/sdk/enkash-checkout-sdk.js` when
+ * this file is served from a checkout host.
  */
 (function (window, document) {
   'use strict';
 
   var CONTAINER_SELECTOR = '#enkash-quick-checkout, .enkash-quick-checkout';
-
-  // Fields that describe how/where to deliver the result, not payment data
-  // itself — never forwarded onto the merchant's returnUrl as extra params.
-  var STRIP_KEYS = ['return_url', 'returnUrl', 'notifyUrl', 'embedded', 'parentOrigin'];
-
   var BUTTON_LABEL = 'Pay with EnKash';
+  var HOSTED_SDK_PATH = '/assets/sdk/enkash-checkout-sdk.js';
+  var HOSTED_ORIGINS = {
+    'https://checkoutv3.enkash.com': true,
+    'https://checkout-uat-v3.enkash.in': true
+  };
 
-  // Captured at evaluation time. document.currentScript is only non-null
-  // while this file is executing — by the time DOMContentLoaded fires it is
-  // null, so reading it lazily inside a callback would lose the reference.
+  // Never forwarded onto the merchant's return URL (mirrors buildStatusRedirectUri).
+  var EXCLUDED_REDIRECT_PARAMS = {
+    return_url: true,
+    returnUrl: true,
+    embedded: true,
+    parentOrigin: true
+  };
+
+  var MSG_UNAVAILABLE = 'Checkout could not be loaded. Please try again.';
+  var MSG_REDIRECT_FAILED = 'Payment completed, but we could not return you to the merchant. Please contact the merchant with your order ID.';
+
   var THIS_SCRIPT = document.currentScript;
 
-  // Same generic pre-transaction failure shape checkout-sdk.js passes to
-  // `handler`. Duplicated here on purpose: the path that needs it most is
-  // the one where checkout-sdk.js never loaded, so nothing from it exists.
-  function checkoutUnavailableResult() {
-    return { status: 'FAILED', reason: 'checkout_unavailable' };
-  }
-
-  // ---- bootstrapping: make sure EnkashCheckout is available ----
+  // ---- SDK + environment resolution ----
 
   function getSdkUrl() {
-    // data-sdk-src lets a specific deployment override the default sibling
-    // path, e.g. if checkout-sdk.js is hosted elsewhere.
     if (THIS_SCRIPT && THIS_SCRIPT.getAttribute('data-sdk-src')) {
       return THIS_SCRIPT.getAttribute('data-sdk-src');
     }
     if (THIS_SCRIPT && THIS_SCRIPT.src) {
+      try {
+        var origin = new URL(THIS_SCRIPT.src, window.location.href).origin;
+        if (HOSTED_ORIGINS[origin]) return origin + HOSTED_SDK_PATH;
+      } catch (e) {}
       return THIS_SCRIPT.src.replace(/checkout-quick\.js(\?.*)?$/, 'checkout-sdk.js');
     }
-    // Fallback: shouldn't normally happen (document.currentScript is null
-    // only if this file was injected asynchronously by other code).
     return 'checkout-sdk.js';
   }
 
-  // ---- which checkout environment to open ----
-
-  /**
-   * Returns the env-related options to hand EnkashCheckout — `{}` when we
-   * have nothing to say, in which case the SDK applies its own default.
-   *
-   * Precedence:
-   *   1. data-base-url on this script tag  — explicit URL
-   *   2. data-env on this script tag       — 'local' | 'uat' | 'prod'
-   *   3. this script's own origin, when it matches a known checkout
-   *      deployment. In production checkout-quick.js is served from the
-   *      checkout host itself, so the correct environment is already implied
-   *      by the script tag the merchant pasted — no attribute needed.
-   *   4. nothing — SDK default (or window.EnkashCheckoutConfig, which the
-   *      SDK reads on its own).
-   */
   function getEnvOptions() {
     if (THIS_SCRIPT) {
       var baseAttr = THIS_SCRIPT.getAttribute('data-base-url');
@@ -100,8 +66,6 @@
     return inferred ? { base_url: inferred } : {};
   }
 
-  // Stamps the resolved environment onto an options object, leaving it
-  // untouched when there's nothing to add so the SDK's own default applies.
   function withEnv(options) {
     var envOptions = getEnvOptions();
     if (envOptions.base_url) options.base_url = envOptions.base_url;
@@ -112,7 +76,6 @@
   function inferBaseUrlFromScriptOrigin() {
     if (!THIS_SCRIPT || !THIS_SCRIPT.src) return null;
 
-    // Read off the SDK rather than keeping a second copy of the URLs here.
     var environments = window.EnkashCheckout && window.EnkashCheckout.ENVIRONMENTS;
     if (!environments) return null;
 
@@ -129,14 +92,12 @@
         return environments[names[i]];
       }
     }
-    // Served from somewhere else entirely (a merchant's own CDN, a test
-    // harness on Vercel) — can't infer anything, don't guess.
     return null;
   }
 
-  function loadSdk(callback) {
+  function loadSdk(onLoad, onError) {
     if (window.EnkashCheckout) {
-      callback();
+      onLoad();
       return;
     }
     var script = document.createElement('script');
@@ -144,22 +105,47 @@
     script.async = true;
     script.onload = function () {
       if (window.EnkashCheckout) {
-        callback();
+        onLoad();
       } else {
-        console.error('[EnKash Quick Checkout] checkout-sdk.js loaded but EnkashCheckout is not defined.');
+        console.error('[EnKash Quick Checkout] SDK loaded but EnkashCheckout is not defined.');
+        onError();
       }
     };
     script.onerror = function () {
-      console.error('[EnKash Quick Checkout] Failed to load checkout-sdk.js from ' + script.src);
-      // EnkashCheckout will never exist, so no checkout can be opened at
-      // all. Same terminal outcome as the SDK's own pre-transaction
-      // failures, delivered down the same path.
-      deliverResult(checkoutUnavailableResult());
+      console.error('[EnKash Quick Checkout] Failed to load SDK from ' + script.src);
+      onError();
     };
     document.head.appendChild(script);
   }
 
-  // ---- button rendering ----
+  // ---- redirect ----
+
+  function buildRedirectUrl(payload) {
+    if (!payload) return null;
+    var returnUrl = payload.returnUrl || payload.return_url;
+    if (!returnUrl) return null;
+
+    var url;
+    try {
+      url = new URL(String(returnUrl), window.location.href);
+    } catch (e) {
+      return null;
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+
+    Object.keys(payload).forEach(function (key) {
+      if (EXCLUDED_REDIRECT_PARAMS[key]) return;
+      var value = payload[key];
+      if (value === null || value === undefined) return;
+      if (typeof value === 'object') return;
+      // Empty strings (e.g. checksum) are forwarded as-is, never dropped.
+      url.searchParams.set(key, String(value));
+    });
+
+    return url.toString();
+  }
+
+  // ---- UI ----
 
   function buildButton() {
     var btn = document.createElement('button');
@@ -184,108 +170,122 @@
       'transition:opacity 0.15s ease'
     ].join(';');
 
-    btn.addEventListener('mouseenter', function () { btn.style.opacity = '0.9'; });
-    btn.addEventListener('mouseleave', function () { btn.style.opacity = '1'; });
+    btn.addEventListener('mouseenter', function () { if (!btn.disabled) btn.style.opacity = '0.9'; });
+    btn.addEventListener('mouseleave', function () { if (!btn.disabled) btn.style.opacity = '1'; });
 
     return btn;
   }
 
-  function setButtonLoading(btn, isLoading) {
-    btn.disabled = isLoading;
-    btn.style.opacity = isLoading ? '0.6' : '1';
-    btn.style.cursor = isLoading ? 'default' : 'pointer';
-    btn.textContent = isLoading ? 'Opening checkout…' : BUTTON_LABEL;
+  function setButtonState(btn, state) {
+    var busy = state !== 'idle';
+    btn.disabled = busy;
+    btn.style.opacity = busy ? '0.6' : '1';
+    btn.style.cursor = busy ? 'default' : 'pointer';
+    btn.textContent =
+      state === 'opening' ? 'Opening checkout…' :
+      state === 'redirecting' ? 'Redirecting…' :
+      BUTTON_LABEL;
   }
 
-  // ---- result delivery (the redirect-yourself piece) ----
-
-  function buildRedirectUrl(payload) {
-    var returnUrl = payload.returnUrl || payload.return_url;
-    if (!returnUrl) {
-      return null;
+  function showError(container, message) {
+    var el = container.querySelector('[data-enkash-error]');
+    if (!el) {
+      el = document.createElement('div');
+      el.setAttribute('data-enkash-error', '');
+      el.setAttribute('role', 'alert');
+      el.style.cssText = [
+        'margin-top:8px',
+        'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif',
+        'font-size:13px',
+        'color:#d93025'
+      ].join(';');
+      container.appendChild(el);
     }
-
-    var params = new URLSearchParams();
-    Object.keys(payload).forEach(function (key) {
-      if (STRIP_KEYS.indexOf(key) === -1 && payload[key] !== undefined && payload[key] !== null) {
-        params.set(key, payload[key]);
-      }
-    });
-
-    // Mirror buildStatusRedirectUri(): normalize the message field name.
-    if (!params.has('transactionMessage')) {
-      var msg = payload.txnMsg || payload.txnMessage;
-      if (msg) {
-        params.set('transactionMessage', msg);
-      }
-    }
-
-    var separator = returnUrl.indexOf('?') === -1 ? '?' : '&';
-    return returnUrl + separator + params.toString();
+    el.textContent = message;
   }
 
-  function deliverResult(payload) {
-    var url = buildRedirectUrl(payload);
-    if (!url) {
-      // No returnUrl on the payload — nothing we can redirect to. This is
-      // a configuration problem (order/merchant missing a return URL), not
-      // a payment failure, so it's logged rather than silently swallowed.
-      console.error('[EnKash Quick Checkout] No returnUrl present in result payload; cannot redirect.', payload);
-      return;
-    }
-    window.location.href = url;
+  function clearError(container) {
+    var el = container.querySelector('[data-enkash-error]');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
   }
 
-  // ---- wiring a single container up ----
+  // ---- wiring ----
 
-  function initContainer(container) {
+  function readContainerConfig(container) {
     var orderId = container.getAttribute('data-order_id');
     if (!orderId) {
       console.error('[EnKash Quick Checkout] Element is missing required data-order_id.', container);
+      return null;
+    }
+
+    var merchantAccessKey = String(
+      container.getAttribute('data-merchant-access-key') ||
+      (THIS_SCRIPT && THIS_SCRIPT.getAttribute('data-merchant-access-key')) ||
+      ''
+    ).trim();
+    if (!merchantAccessKey) {
+      console.error('[EnKash Quick Checkout] Element is missing required data-merchant-access-key.', container);
+      return null;
+    }
+
+    return { orderId: orderId, merchantAccessKey: merchantAccessKey };
+  }
+
+  function handleResult(container, button, payload) {
+    var redirectUrl = buildRedirectUrl(payload);
+
+    if (redirectUrl) {
+      setButtonState(button, 'redirecting');
+      window.location.assign(redirectUrl);
       return;
     }
 
-    // Avoid double-init if this script is somehow evaluated twice.
-    if (container.getAttribute('data-enkash-initialized') === 'true') {
+    setButtonState(button, 'idle');
+
+    if (payload && payload.reason === 'checkout_unavailable') {
+      showError(container, MSG_UNAVAILABLE);
       return;
     }
+
+    console.error('[EnKash Quick Checkout] Result has no valid returnUrl; cannot redirect.', payload);
+    showError(container, MSG_REDIRECT_FAILED);
+  }
+
+  function initContainer(container) {
+    if (container.getAttribute('data-enkash-initialized') === 'true') return;
+
+    var config = readContainerConfig(container);
+    if (!config) return;
+
     container.setAttribute('data-enkash-initialized', 'true');
 
     var button = buildButton();
     container.appendChild(button);
 
     button.addEventListener('click', function () {
-      setButtonLoading(button, true);
+      clearError(container);
+      setButtonState(button, 'opening');
 
       var checkout;
       try {
         checkout = new window.EnkashCheckout(withEnv({
-          order_id: orderId,
+          order_id: config.orderId,
+          merchantAccessKey: config.merchantAccessKey,
           handler: function (payload) {
-            // Every non-voluntary outcome lands here: the gateway RESULT
-            // payload (the iframe has already shown the failure state to
-            // the user if applicable), or the SDK's generic
-            // { status: "FAILED", reason: "checkout_unavailable" } when
-            // checkout never came up. Both are delivered to returnUrl.
-            // NOTE: PENDING_WITH_BANK is forwarded as-is like any other status today; may need dedicated handling later.
-            deliverResult(payload);
+            handleResult(container, button, payload);
           },
           modal: {
             escape: true,
             backdropclose: false,
             ondismiss: function () {
-              // Voluntary close only (escape / backdrop) — user chose not to
-              // pay, so re-enable the button. Failures do not reach here;
-              // they arrive via `handler` and redirect to returnUrl.
-              setButtonLoading(button, false);
+              setButtonState(button, 'idle');
             }
           }
         }));
       } catch (err) {
-        // Construction threw, so the SDK never got the chance to call our
-        // handler. No transaction exists — same generic failure, same path.
         console.error('[EnKash Quick Checkout] Failed to initialize checkout.', err);
-        deliverResult(checkoutUnavailableResult());
+        setButtonState(button, 'idle');
+        showError(container, MSG_UNAVAILABLE);
         return;
       }
 
@@ -293,15 +293,20 @@
     });
   }
 
-  function initAll() {
+  function forEachContainer(fn) {
     var containers = document.querySelectorAll(CONTAINER_SELECTOR);
-    for (var i = 0; i < containers.length; i++) {
-      initContainer(containers[i]);
-    }
+    for (var i = 0; i < containers.length; i++) fn(containers[i]);
   }
 
   function start() {
-    loadSdk(initAll);
+    loadSdk(
+      function () { forEachContainer(initContainer); },
+      function () {
+        forEachContainer(function (container) {
+          if (readContainerConfig(container)) showError(container, MSG_UNAVAILABLE);
+        });
+      }
+    );
   }
 
   if (document.readyState === 'loading') {

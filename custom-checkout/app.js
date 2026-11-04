@@ -157,7 +157,7 @@
 
     try {
       checkout = new window.EnkashCustomCheckout({
-        key: $('keyInput').value.trim(),
+        merchantAccessKey: $('keyInput').value.trim(),
         order_id: orderId,
         environment: $('envSelect').value,
 

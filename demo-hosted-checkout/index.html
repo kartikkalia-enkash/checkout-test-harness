@@ -455,6 +455,7 @@
 
   var ORDER_ID = (params.get('order_id') || params.get('orderId') || '').trim();
   var ENV = (params.get('env') || DEFAULT_ENV).trim().toLowerCase();
+  var MERCHANT_ACCESS_KEY = (params.get('merchantAccessKey') || params.get('key') || '').trim();
   var parsedAmount = Number(params.get('amount'));
   var UNIT_PRICE = parsedAmount > 0 ? parsedAmount : 100;
 
@@ -474,6 +475,10 @@
     }
     if (!current.has('env')) {
       current.set('env', DEFAULT_ENV);
+      changed = true;
+    }
+    if (!current.has('merchantAccessKey') && !current.has('key')) {
+      current.set('merchantAccessKey', '');
       changed = true;
     }
     if (!changed) return;
@@ -775,6 +780,7 @@
     try {
       checkout = new window.EnkashCheckout({
         order_id: ORDER_ID,
+        merchantAccessKey: MERCHANT_ACCESS_KEY,
         env: ENV,
 
         // Single outcome channel. Fires once, for every real transaction

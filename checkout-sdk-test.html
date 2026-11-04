@@ -430,6 +430,9 @@
         <label for="orderId">Order ID (auto-filled above, or edit manually)</label>
         <input type="text" id="orderId" placeholder="order_xxx" value="order_test_12345" />
 
+        <label for="merchantAccessKey">Merchant access key</label>
+        <input type="text" id="merchantAccessKey" placeholder="MERCHANT_ACCESS_KEY" />
+
         <div class="checkbox-row">
           <input type="checkbox" id="escapeOpt" checked />
           <label for="escapeOpt" style="margin:0;">Allow Escape key to dismiss</label>
@@ -696,11 +699,11 @@
         return;
       }
 
+      var merchantAccessKey = document.getElementById('merchantAccessKey').value.trim();
       var options = {
-        // One SDK build for every environment — the base URL is an input,
-        // not a compile-time constant.
         base_url: baseUrl,
         order_id: orderId,
+        merchantAccessKey: merchantAccessKey,
         handler: function (response) {
           // This is exactly what the SDK hands back on enkash:result
           addLog('received', 'SDK response (handler called)', response);
@@ -726,8 +729,10 @@
       addLog('sent', 'Opening checkout with input', {
         env: envSelect.value,
         base_url: options.base_url,
+        merchantAccessKey: options.merchantAccessKey,
         iframe_src: options.base_url + '/v1/pay/' + encodeURIComponent(options.order_id) +
-          '?embedded=true&parentOrigin=' + encodeURIComponent(window.location.origin),
+          '?embedded=true&parentOrigin=' + encodeURIComponent(window.location.origin) +
+          (options.merchantAccessKey ? '&merchantAccessKey=' + encodeURIComponent(options.merchantAccessKey) : ''),
         order_id: options.order_id,
         modal: options.modal
       });

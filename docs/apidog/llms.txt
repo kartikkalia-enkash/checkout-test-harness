@@ -1,0 +1,35 @@
+# EnKash Checkout
+
+Integrate one SDK from this index. Each page below is complete: an integration model that receives only that file can implement that SDK. The merchant server creates the order. Every page starts from an existing `order_id`. There is no order-create call in these SDKs. Standard, Quick, and Custom Checkout take the merchant access key when checkout is opened. The outcome is the handler. It is not a browser redirect to a callback URL. The handler payload is not proof of payment. The merchant server confirms the transaction with EnKash, server to server, before fulfilling the order.
+
+Pick the SDK by who renders checkout and how the outcome comes back.
+
+<CardGroup cols={2}>
+  <Card title="Standard Checkout" icon="material-two-tone-storefront">
+    The merchant page opens EnKash hosted checkout in an iframe. The outcome is the `handler` callback. Voluntary close is `modal.ondismiss`, which is not a payment result.
+
+    File: `standard-checkout.md`
+  </Card>
+  <Card title="Quick Checkout" icon="material-two-tone-business_center">
+    The merchant page adds one element and one script. EnKash injects the Pay button. The outcome is `EnkashQuickCheckout.handler`.
+
+    File: `quick-checkout.md`
+  </Card>
+  <Card title="React Native" icon="material-two-tone-cottage">
+    A React Native app opens the same hosted checkout in a WebView. `EnKashCheckout.open` resolves once with `{ kind: 'result', payload }` or `{ kind: 'dismiss' }`.
+
+    File: `react-native.md`
+  </Card>
+  <Card title="Custom Checkout" icon="material-two-tone-corporate_fare">
+    The merchant renders the checkout UI. `EnkashCustomCheckout` calls the gateway and opens the bank popup. Every terminal outcome is the `handler` callback, at most once.
+
+    File: `custom-checkout.md`
+  </Card>
+</CardGroup>
+
+| File | Global | Outcome channel |
+| --- | --- | --- |
+| `standard-checkout.md` | `EnkashCheckout` | `handler(payload)` |
+| `quick-checkout.md` | `EnkashQuickCheckout` | `handler(payload)` |
+| `react-native.md` | `EnKashCheckout` | `open()` promise, and optional `handler` |
+| `custom-checkout.md` | `EnkashCustomCheckout` | `handler(payload)` once |

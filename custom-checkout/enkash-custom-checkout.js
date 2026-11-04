@@ -1,108 +1,16 @@
 /**
  * EnKash Custom Checkout SDK
- * ==========================
- *
- * A standalone, framework-free JavaScript SDK that lets a merchant build their
- * own checkout UI while this SDK owns every call to the EnKash payment gateway.
- * The merchant renders 100% of the UI; nothing here draws anything on screen
- * except the bank/ACS popup tab, which has to be a real browser tab.
- *
- * Order creation stays on the merchant's server and is out of scope. This SDK is
- * initialised with an already-created order id.
  *
  *   var checkout = new EnkashCustomCheckout({
- *     key: 'MERCHANT_PUBLIC_KEY',
- *     order_id: 'ORD1784195236818VZuxB',
- *     environment: 'prod',                 // or 'uat' / 'dev'
- *     handler: function (result) { ... },  // every terminal outcome lands here
+ *     merchantAccessKey: 'MERCHANT_ACCESS_KEY',
+ *     order_id: 'ORD_FROM_YOUR_SERVER',
+ *     environment: 'prod',
+ *     handler: function (result) { ... }
  *   });
- *
  *   var config = await checkout.init();
  *
- * Supported: UPI (QR + Intent), Cards (new cards only), Netbanking, Wallets.
- * Explicitly not supported: UPI VPA/collect, saved or tokenised cards, PPI.
- * RuPay native OTP is detected and stubbed, never implemented.
- *
- * ---------------------------------------------------------------------------
- * Two constraints that are easy to break and expensive to debug
- * ---------------------------------------------------------------------------
- *
- * 1. createPayment() MUST be called directly from the customer's click handler,
- *    with no `await` between the click and the call. The bank popup is opened
- *    synchronously at the top of createPayment while the click's transient user
- *    activation is still live. Activation ends at the first await, so opening
- *    the tab after the charge response resolves is guaranteed to be blocked by
- *    the browser. This is a hard browser rule, not a tunable.
- *
- * 2. Status polling is the ONLY source of truth for an outcome. Never the popup
- *    tab's lifecycle, never window.opener, never postMessage. The backend serves
- *    a self-closing page to the popup on the happy path, which means a closed
- *    tab is indistinguishable from a customer who gave up.
- *
- * ---------------------------------------------------------------------------
- * CORS
- * ---------------------------------------------------------------------------
- * The gateway allow-lists merchant origins per-merchant; it does not send a
- * wildcard. A merchant's production and staging domains are registered during
- * the compliance onboarding review that gates access to custom checkout. If you
- * see opaque network failures on every call, the origin is almost certainly not
- * registered yet. Do not "fix" this by relaxing anything client-side.
- *
- * ---------------------------------------------------------------------------
- * Flow per method
- * ---------------------------------------------------------------------------
- *
- *   // once, up front
- *   var config = await checkout.init();
- *
- *   // --- Contact (skip entirely when config.contact.required is false) ---
- *   if (config.contact.required) {
- *     if (!checkout.validateMobile(mobile)) return showError();
- *     await checkout.submitContactDetails({ mobile: mobile, email: email });
- *   }
- *   // Alternatively, skip this call and pass contact:{mobile,email} to
- *   // createPayment() instead — the SDK saves it before charging.
- *
- *   // --- UPI QR ---
- *   checkout.selectMethod('UPI');
- *   var qr = await checkout.getUpiQr();      // polling starts here
- *   render(qr.qrImageUrl, qr.expiresInSeconds);
- *   onPayClick(function () { checkout.createPayment({ method: 'UPI', upi: { flow: 'qr' } }); });
- *
- *   // --- UPI Intent ---
- *   checkout.selectMethod('UPI');
- *   var intent = await checkout.getUpiIntentLinks();   // pure fetch, no polling
- *   renderAppButtons(intent.apps);
- *   onAppClick(async function (app) {                  // this is the Pay click
- *     var ack = await checkout.createPayment({ method: 'UPI', upi: { flow: 'intent', app: app } });
- *     window.location.href = ack.link;                 // polling started inside
- *   });
- *
- *   // --- Card ---
- *   checkout.selectMethod('CARD');                     // prefetches the 3DS script
- *   onCardNumberInput(function (value) {
- *     showLogo(checkout.getCardNetwork(value));        // local, from 6 digits
- *     if (digits(value).length === 10) {
- *       checkout.checkBin(value).then(function (bin) { // network, at 10 digits
- *         if (!bin.supported) showError(bin.unsupportedReason);
- *         return checkout.getAmountForMethod('CARD');
- *       }).then(showTotal);
- *     }
- *   });
- *   onPayClick(function () {                           // no await before this call
- *     checkout.createPayment({
- *       method: 'CARD',
- *       card: { number: n, expiry: 'MM/YY', cvv: c, holderName: h },
- *       contact: { mobile: m },
- *     });
- *   });
- *
- *   // --- Netbanking / Wallet ---
- *   checkout.selectMethod('NETBANKING');
- *   await checkout.getAmountForMethod('NETBANKING', bankCode);
- *   onPayClick(function () {
- *     checkout.createPayment({ method: 'NETBANKING', bankCode: bankCode });
- *   });
+ * createPayment() must be called from the click handler with no await before
+ * it, or the bank popup is blocked. Status polling is the only outcome source.
  */
 (function (window, document) {
   'use strict';
@@ -111,42 +19,20 @@
    * MODULE 1 — Env
    * ========================================================================= */
 
-  /**
-   * One gateway host per environment. Every endpoint this SDK touches lives on
-   * this single base; there is deliberately no second host to reason about.
-   */
   var GATEWAY_BASES = {
     prod: 'https://olympus-pg.enkash.in',
     uat: 'https://olympus-pg-uat.enkash.in',
+    local: 'https://olympus-dev.enkash.in',
     dev: 'https://olympus-dev.enkash.in',
   };
 
-  /**
-   * Static asset host, used to turn the bank/wallet/app codes the gateway
-   * returns into URLs the merchant can put in an <img src>.
-   *
-   * TODO(assets): exact per-asset-type paths still to be confirmed. Current
-   * mapping is lifted from the hosted checkout app:
-   *   netbanking  {base}/netbanking/{bankCode}.png    (fallback default-bank.svg)
-   *   wallets     {base}/wallets/{walletCode}.svg     (fallback WA001.svg)
-   *   upi apps    {base}/upi/{phonepe|gpay|paytm}-symbol.svg, other-upi.svg
-   *   cards       {base}/cards/{visa|mastercard|rupay|amex|diners}.svg
-   */
   var ASSET_BASES = {
     prod: 'https://checkoutv3.enkash.com/assets',
     uat: 'https://checkout-uat-v3.enkash.in/assets',
+    local: 'http://localhost:4200/assets',
     dev: 'https://checkout-dev.enkash.in/assets',
   };
 
-  /**
-   * Lyra 3DS MPI script, prefetched as soon as the card method is selected so
-   * the challenge is not waiting on a cold script fetch at authorise time.
-   *
-   * TODO(lyra-url): replace with the public hosted URL once supplied. This
-   * currently guesses a sibling of the asset base, mirroring the local build
-   * asset `src/assets/js/lyrampi-1.0.1.js` registered in angular.json. If the
-   * real URL differs, only this function changes.
-   */
   function lyraScriptUrl(environment) {
     return ASSET_BASES[environment] + '/js/lyrampi-1.0.1.js';
   }
@@ -246,24 +132,35 @@
    * A non-zero response_code becomes a rejection so callers only handle one
    * failure path.
    */
-  function Http(baseUrl) {
+  function Http(baseUrl, merchantAccessKey) {
     this._base = baseUrl;
+    this._merchantAccessKey = merchantAccessKey || '';
   }
 
   Http.prototype.request = function (method, path, options) {
     var opts = options || {};
     var url = this._base + (path.charAt(0) === '/' ? path : '/' + path);
+    var params = {};
+    var key;
 
     if (opts.params) {
-      var search = [];
-      for (var key in opts.params) {
+      for (key in opts.params) {
         if (!Object.prototype.hasOwnProperty.call(opts.params, key)) continue;
-        var value = opts.params[key];
-        if (value == null) continue;
-        search.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)));
+        params[key] = opts.params[key];
       }
-      if (search.length) url += (url.indexOf('?') === -1 ? '?' : '&') + search.join('&');
     }
+    if (this._merchantAccessKey && params.merchantAccessKey == null) {
+      params.merchantAccessKey = this._merchantAccessKey;
+    }
+
+    var search = [];
+    for (key in params) {
+      if (!Object.prototype.hasOwnProperty.call(params, key)) continue;
+      var value = params[key];
+      if (value == null) continue;
+      search.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)));
+    }
+    if (search.length) url += (url.indexOf('?') === -1 ? '?' : '&') + search.join('&');
 
     var init = { method: method, credentials: 'omit', headers: {} };
     if (opts.body !== undefined) {
@@ -296,8 +193,6 @@
           });
         },
         function (networkError) {
-          // Also the shape a CORS rejection takes: the browser gives us an
-          // opaque TypeError with no status. See the CORS note in the header.
           throw SdkError(ErrorCode.NETWORK, 'Unable to reach the payment gateway', {
             path: path,
             cause: String(networkError && networkError.message ? networkError.message : networkError),
@@ -1110,22 +1005,20 @@
     if (typeof opts.handler !== 'function') {
       throw SdkError(ErrorCode.INVALID_OPTIONS, 'EnkashCustomCheckout: `handler` function is required');
     }
-    if (!opts.key || typeof opts.key !== 'string') {
-      throw SdkError(ErrorCode.INVALID_OPTIONS, 'EnkashCustomCheckout: `key` is required');
+    var merchantAccessKey = opts.merchantAccessKey || opts.key;
+    if (!merchantAccessKey || typeof merchantAccessKey !== 'string') {
+      throw SdkError(ErrorCode.INVALID_OPTIONS, 'EnkashCustomCheckout: `merchantAccessKey` is required');
     }
 
-    var environment = opts.environment || 'prod';
+    var environment = opts.environment || opts.env || 'prod';
     if (!GATEWAY_BASES[environment]) {
       throw SdkError(
         ErrorCode.INVALID_OPTIONS,
-        'EnkashCustomCheckout: unknown environment "' + environment + '". Expected prod, uat or dev.'
+        'EnkashCustomCheckout: unknown environment "' + environment + '". Expected prod or uat.'
       );
     }
 
-    // Held but intentionally unused for now.
-    // TODO(key): may later be matched against publicIdentifierKey or used as an
-    // auth credential — not yet decided. Could also be removed.
-    this._key = opts.key;
+    this._merchantAccessKey = merchantAccessKey;
 
     this._environment = environment;
     this._orderId = opts.order_id;
@@ -1133,7 +1026,7 @@
     this._onPopupClosed = typeof opts.onPopupClosed === 'function' ? opts.onPopupClosed : null;
 
     this._assetBase = ASSET_BASES[environment];
-    this._http = new Http(GATEWAY_BASES[environment]);
+    this._http = new Http(GATEWAY_BASES[environment], merchantAccessKey);
     this._poller = new Poller();
     this._popup = new Popup();
     this._lyra = new LyraLoader(lyraScriptUrl(environment));
@@ -1711,12 +1604,6 @@
           surcharge: (fees.surcharge + fees.convenienceFee).toFixed(2),
           // The flat GST rate (e.g. 18), not a computed amount.
           surchargeGst: Number(self._order.surchargeGst) || 0,
-          // Owned by the SDK, never taken from the merchant. Tells the gateway to
-          // serve a self-closing page to the popup instead of redirecting it to
-          // a checkout UI that has no parent context here.
-          //
-          // TODO(callback-url): this is also the hook a future server-to-server
-          // callback_url delivery mode would key off. Extension point only.
           popupMode: true,
         });
       })
@@ -1841,13 +1728,8 @@
       return { state: 'challenge' };
     }
 
-    // 4. RuPay native OTP. Deliberately not implemented.
     if (result.rupay) {
       this._popup.discard();
-      // TODO(rupay-otp): RuPay native OTP is out of scope for this SDK. Decision
-      // still pending on whether to cancel the transaction here or leave it for
-      // backend expiry. Currently we cancel so nothing is left open, which is the
-      // conservative option. Revisit before this branch ships.
       this._http.patch('/pay/charge/cancel', {
         transactionId: result.transactionId || orderTxnId,
         remark: 'rupay_otp_unsupported',
@@ -2315,13 +2197,6 @@
     this._deliver(attempt, payload);
   };
 
-  /**
-   * The single delivery choke point. At most once per SDK instance.
-   *
-   * TODO(callback-url): this is the marked extension point for an alternative
-   * server-to-server callback_url delivery mode. Only this function would need a
-   * second branch; nothing upstream should learn about delivery modes.
-   */
   EnkashCustomCheckout.prototype._deliver = function (attempt, payload) {
     if (this._destroyed) return;
     if (attempt) {
@@ -2391,7 +2266,7 @@
   /* ========================================================================= */
 
   EnkashCustomCheckout.ErrorCode = ErrorCode;
-  EnkashCustomCheckout.version = '1.0.0-alpha.1';
+  EnkashCustomCheckout.version = '1.0.0';
 
   window.EnkashCustomCheckout = EnkashCustomCheckout;
 })(window, document);

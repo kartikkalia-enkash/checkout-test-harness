@@ -36,6 +36,9 @@ function run(attrs, pageOrigin, scriptSrc, globalConfig) {
 
   const container = el('div');
   container.attrs['data-order_id'] = 'ORD_QUICK_1';
+  if (attrs['data-merchant-access-key'] !== '') {
+    container.attrs['data-merchant-access-key'] = attrs['data-merchant-access-key'] || 'MAK_1';
+  }
 
   const scriptTag = el('script');
   scriptTag.src = scriptSrc;
@@ -71,11 +74,15 @@ function run(attrs, pageOrigin, scriptSrc, globalConfig) {
 }
 
 const PAGE = 'https://harness.vercel.app';
-const SUFFIX = '/v1/pay/ORD_QUICK_1?embedded=true&parentOrigin=https%3A%2F%2Fharness.vercel.app';
+const SUFFIX = '/v1/pay/ORD_QUICK_1?embedded=true&parentOrigin=https%3A%2F%2Fharness.vercel.app&merchantAccessKey=MAK_1';
 
 console.log('checkout-quick.js environment resolution:');
 check('data-env="uat" (what test-quick-checkout.html now uses)',
   run({ 'data-env': 'uat' }, PAGE, PAGE + '/checkout-quick.js'),
+  'https://checkout-uat-v3.enkash.in' + SUFFIX);
+
+check('data-merchant-access-key forwarded to iframe',
+  run({ 'data-env': 'uat', 'data-merchant-access-key': 'MAK_1' }, PAGE, PAGE + '/checkout-quick.js'),
   'https://checkout-uat-v3.enkash.in' + SUFFIX);
 
 check('data-env="local"',
@@ -101,6 +108,16 @@ check('no attrs, unknown host, no config -> SDK default (prod)',
 check('no attrs, unknown host, window.EnkashCheckoutConfig honoured',
   run({}, PAGE, PAGE + '/checkout-quick.js', { env: 'uat' }),
   'https://checkout-uat-v3.enkash.in' + SUFFIX);
+
+try {
+  run({ 'data-env': 'uat', 'data-merchant-access-key': '' }, PAGE, PAGE + '/checkout-quick.js');
+  failures++;
+  console.log('  FAIL missing data-merchant-access-key should not inject a button');
+} catch (e) {
+  const ok = String(e.message).indexOf('did not inject a button') !== -1;
+  if (!ok) failures++;
+  console.log((ok ? '  PASS ' : '  FAIL ') + 'missing data-merchant-access-key: ' + e.message);
+}
 
 // The test page's actual script tag must carry the env.
 const testHtml = fs.readFileSync('test-quick-checkout.html', 'utf8');

@@ -26,13 +26,14 @@ vm.runInContext(sdkSrc, sandbox);
 
 const EnkashCheckout = sandbox.window.EnkashCheckout;
 const noop = function () {};
-const mk = (extra) => new EnkashCheckout(Object.assign({ order_id: 'ORD_1', handler: noop }, extra));
+const mk = (extra) => new EnkashCheckout(Object.assign({ order_id: 'ORD_1', merchantAccessKey: 'MAK_1', handler: noop }, extra));
 
 const cases = [
   ['default (no env given)', {}, 'https://checkoutv3.enkash.com'],
   ['env: local', { env: 'local' }, 'http://localhost:4200'],
   ['env: uat', { env: 'uat' }, 'https://checkout-uat-v3.enkash.in'],
   ['env: prod', { env: 'prod' }, 'https://checkoutv3.enkash.com'],
+  ['environment alias: uat', { environment: 'uat' }, 'https://checkout-uat-v3.enkash.in'],
   ['base_url with trailing slash', { base_url: 'https://checkout-uat-v3.enkash.in/' }, 'https://checkout-uat-v3.enkash.in'],
   ['base_url wins over env', { base_url: 'http://localhost:4300', env: 'prod' }, 'http://localhost:4300'],
 ];
@@ -53,7 +54,11 @@ if (g.baseUrl !== 'https://checkout-uat-v3.enkash.in') failures++;
 delete sandbox.window.EnkashCheckoutConfig;
 
 // bad inputs must throw
-for (const [name, opts] of [['unknown env', { env: 'staging' }], ['malformed base_url', { base_url: 'localhost:4200' }]]) {
+for (const [name, opts] of [
+  ['unknown env', { env: 'staging' }],
+  ['malformed base_url', { base_url: 'localhost:4200' }],
+  ['missing merchantAccessKey', { merchantAccessKey: '' }],
+]) {
   let threw = false, msg = '';
   try { mk(opts); } catch (e) { threw = true; msg = e.message; }
   if (!threw) failures++;
@@ -70,7 +75,7 @@ doc.createElement = () => {
 win.matchMedia = () => ({ matches: false });
 const c = mk({ env: 'uat' });
 c._buildDom();
-const srcOk = built.length === 1 && built[0] === 'https://checkout-uat-v3.enkash.in/v1/pay/ORD_1?embedded=true&parentOrigin=https%3A%2F%2Fharness.vercel.app';
+const srcOk = built.length === 1 && built[0] === 'https://checkout-uat-v3.enkash.in/v1/pay/ORD_1?embedded=true&parentOrigin=https%3A%2F%2Fharness.vercel.app&merchantAccessKey=MAK_1';
 if (!srcOk) failures++;
 console.log((srcOk ? '  PASS ' : '  FAIL ') + 'iframe src: ' + built[0]);
 

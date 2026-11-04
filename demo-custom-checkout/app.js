@@ -32,7 +32,7 @@
 
   var ORDER_ID = (params.get('order_id') || params.get('orderId') || '').trim();
   var ENV = (params.get('env') || DEFAULT_ENV).trim().toLowerCase();
-  var MERCHANT_KEY = (params.get('key') || 'DEMO_MERCHANT_KEY').trim();
+  var MERCHANT_KEY = (params.get('merchantAccessKey') || params.get('key') || 'DEMO_MERCHANT_KEY').trim();
   var parsedAmount = Number(params.get('amount'));
   var UNIT_PRICE = parsedAmount > 0 ? parsedAmount : 100;
 
@@ -71,6 +71,7 @@
   var ASSET_BASES = {
     prod: 'https://checkoutv3.enkash.com/assets',
     uat: 'https://checkout-uat-v3.enkash.in/assets',
+    local: 'http://localhost:4200/assets',
     dev: 'https://checkout-dev.enkash.in/assets'
   };
   var ASSET_BASE = ASSET_BASES[ENV] || ASSET_BASES.prod;
@@ -403,7 +404,7 @@
     var checkout;
     try {
       checkout = new window.EnkashCustomCheckout({
-        key: MERCHANT_KEY,
+        merchantAccessKey: MERCHANT_KEY,
         order_id: ORDER_ID,
         environment: ENV,
 
