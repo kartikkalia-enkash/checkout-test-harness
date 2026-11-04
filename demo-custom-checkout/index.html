@@ -17,13 +17,13 @@
 
   Order creation lives on the merchant's server and is out of scope here, so the
   order id arrives in the URL. Open the page bare and it rewrites its own address
-  bar to `?order_id=&env=prod` for you to fill in:
+  bar to `?order_id=&env=prod&merchantAccessKey=` for you to fill in:
 
-    index.html                             → ?order_id=&env=prod
+    index.html                                          → ?order_id=&env=prod&merchantAccessKey=
     index.html?order_id=ORD1784195236818VZuxB
-    index.html?order_id=...&env=uat        (env: prod | uat | dev, default prod)
-    index.html?order_id=...&key=YOUR_KEY   (merchant public key, default DEMO_KEY)
-    index.html?order_id=...&amount=100     (cosmetic storefront price, default 100)
+    index.html?order_id=...&env=uat                     (env: prod | uat | dev, default prod)
+    index.html?order_id=...&merchantAccessKey=YOUR_KEY  (or key=; default DEMO_MERCHANT_KEY)
+    index.html?order_id=...&amount=100                  (cosmetic storefront price, default 100)
 
   `amount` only drives the product/cart numbers on this page. From the checkout
   page onwards every figure is the gateway's, via init() and

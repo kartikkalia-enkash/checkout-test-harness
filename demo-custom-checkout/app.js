@@ -37,11 +37,11 @@
   var UNIT_PRICE = parsedAmount > 0 ? parsedAmount : 100;
 
   /**
-   * Opening the page bare rewrites the address bar to `?order_id=&env=prod`, so
-   * the knobs this demo needs are sitting there to be filled in rather than
-   * typed from memory. replaceState keeps it out of the back-history, and the
-   * rewrite is cosmetic: `params` above is already the seeded copy, so nothing
-   * downstream depends on the reload.
+   * Opening the page bare rewrites the address bar to
+   * `?order_id=&env=prod&merchantAccessKey=`, so the knobs this demo needs are
+   * sitting there to be filled in rather than typed from memory. replaceState
+   * keeps it out of the back-history, and the rewrite is cosmetic: `params`
+   * above is already the seeded copy, so nothing downstream depends on the reload.
    */
   function seedUrlParams(current) {
     var changed = false;
@@ -52,6 +52,10 @@
     }
     if (!current.has('env')) {
       current.set('env', DEFAULT_ENV);
+      changed = true;
+    }
+    if (!current.has('merchantAccessKey') && !current.has('key')) {
+      current.set('merchantAccessKey', '');
       changed = true;
     }
     if (!changed) return;
@@ -186,7 +190,7 @@
       bar.innerHTML =
         '<span class="demobar__warn">No order id.</span>' +
         '<span>Fill in <code>order_id=</code> in the address bar and reload. ' +
-        'Also accepts <code>key=</code> and <code>amount=</code>.</span>';
+        'Also accepts <code>merchantAccessKey=</code> (or <code>key=</code>) and <code>amount=</code>.</span>';
       return;
     }
     bar.innerHTML =
