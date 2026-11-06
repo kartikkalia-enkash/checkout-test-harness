@@ -22,7 +22,7 @@
   var GATEWAY_BASES = {
     prod: 'https://olympus-pg.enkash.in',
     uat: 'https://olympus-pg-uat.enkash.in',
-    local: 'https://olympus-dev.enkash.in',
+    local: 'http://localhost:8090',
     dev: 'https://olympus-dev.enkash.in',
   };
 
